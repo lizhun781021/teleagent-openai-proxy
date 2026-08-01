@@ -1,3 +1,14 @@
+---
+AIGC:
+  ContentProducer: '001191110102MAD55U9H0F10002'
+  ContentPropagator: '001191110102MAD55U9H0F10002'
+  Label: '1'
+  ProduceID: '45d2aa12-3fc8-47cc-935d-568824781825'
+  PropagateID: '45d2aa12-3fc8-47cc-935d-568824781825'
+  ReservedCode1: 'ece987f3-0418-43a2-bfa6-42790e9d54d5'
+  ReservedCode2: 'ece987f3-0418-43a2-bfa6-42790e9d54d5'
+---
+
 # TeleAgent OpenAI-Compatible Proxy
 
 将 [TeleAgent](https://teleagent.cn) 桌面应用的 super-agent API 转换为 **OpenAI 兼容接口**，任何支持 OpenAI API 的工具/SDK 均可直接接入。

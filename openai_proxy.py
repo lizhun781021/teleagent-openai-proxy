@@ -1456,7 +1456,7 @@ launchctl load ~/Library/LaunchAgents/com.lizhun.openai-proxy.plist
 tail -f /tmp/openai-proxy.log
 
 # 手动前台运行（调试用）
-python3 ~/scripts/openai_proxy.py --port 8088 --host 0.0.0.0<button class="copy-btn" onclick="copyCode('svc-cmds')">复制</button></div>
+python3 ~/Desktop/星小辰工作空间/openai-proxy/openai_proxy.py --port 8088 --host 0.0.0.0<button class="copy-btn" onclick="copyCode('svc-cmds')">复制</button></div>
     </div>
 
     <div class="guide-section">
