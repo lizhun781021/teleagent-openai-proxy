@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '45d2aa12-3fc8-47cc-935d-568824781825'
-  PropagateID: '45d2aa12-3fc8-47cc-935d-568824781825'
-  ReservedCode1: 'ece987f3-0418-43a2-bfa6-42790e9d54d5'
-  ReservedCode2: 'ece987f3-0418-43a2-bfa6-42790e9d54d5'
+  ProduceID: '14e0e1c5-9bf6-40d5-aaa7-1ca5e818b05c'
+  PropagateID: '14e0e1c5-9bf6-40d5-aaa7-1ca5e818b05c'
+  ReservedCode1: '9135cb09-3b78-4cdb-a690-b6dfc0a370fe'
+  ReservedCode2: '9135cb09-3b78-4cdb-a690-b6dfc0a370fe'
 ---
 
 # TeleAgent OpenAI-Compatible Proxy
@@ -29,7 +29,9 @@ AIGC:
 ### 前置条件
 
 - macOS（依赖 TeleAgent 桌面应用运行中的 super-agent）
-- Python 3.8+
+- Python 3.8+（推荐 [Homebrew Python 3.11](https://brew.sh)，具备完整 TCC 权限）
+
+> **TCC 权限提示**：macOS 的 `~/Desktop`、`~/Documents`、`~/Downloads` 受 TCC 隐私保护。通过 `launchd` 持久化运行的服务需要使用已获得 TCC 授权的 Python 解释器（如 Homebrew 安装的 Python 3.11+），否则会遇到 `Operation not permitted` 错误。如果脚本放在 `/tmp` 或 `~/scripts` 等非受保护目录，则无此限制。
 
 ### 启动代理
 
@@ -113,7 +115,7 @@ cat > ~/Library/LaunchAgents/com.lizhun.openai-proxy.plist << 'EOF'
     <string>com.lizhun.openai-proxy</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
+        <string>/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/bin/python3.11</string>
         <string>/Users/YOUR_USERNAME/scripts/openai_proxy.py</string>
         <string>--port</string>
         <string>8088</string>
