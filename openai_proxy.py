@@ -856,9 +856,12 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": {"message": "messages is required", "type": "invalid_request"}})
             return
 
+        # 读取自定义会话标题（机器人可传"姓名 | 技能 | 时间"）
+        session_title = req_data.get("session_title") or f"API-{request_id}"
+
         # 创建会话
         session_id = create_session(directory=DEFAULT_DIRECTORY,
-                                     title=f"API-{request_id}")
+                                     title=session_title)
         if not session_id:
             self._send_json(500, {"error": {"message": "Failed to create session", "type": "server_error"}})
             return
@@ -975,7 +978,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
 
         listener = StreamingSSEListener(
             session_id, on_delta=send_delta, on_complete=send_complete,
-            on_error=send_error, timeout=180
+            on_error=send_error, timeout=600
         )
         sse_thread = threading.Thread(target=listener.listen)
         sse_thread.daemon = True
@@ -988,7 +991,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             send_error({"message": "Failed to send prompt to super-agent"})
             return
 
-        sse_thread.join(timeout=180)
+        sse_thread.join(timeout=600)
         if not listener.completed and not has_error:
             send_error({"message": "Response timeout"})
 
@@ -998,7 +1001,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         model_name = f"{provider_id}/{model_id}"
         listener = StreamingSSEListener(
             session_id, on_delta=lambda t: None, on_complete=lambda: None,
-            on_error=lambda e: None, timeout=180
+            on_error=lambda e: None, timeout=600
         )
         sse_thread = threading.Thread(target=listener.listen)
         sse_thread.daemon = True
@@ -1015,7 +1018,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             update_stats(model=model_name, error=True)
             return
 
-        sse_thread.join(timeout=180)
+        sse_thread.join(timeout=600)
         text = listener.get_full_text()
         error = listener.error
         tokens = listener.tokens
