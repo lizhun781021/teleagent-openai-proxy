@@ -211,8 +211,17 @@ def sign_request(method, path_with_query):
 # ============================================================
 # Super-Agent API 客户端
 # ============================================================
-def sa_request(method, path, body=None, timeout=30):
-    """发送认证请求到 super-agent"""
+def _force_refresh_session_key():
+    """强制刷新 session key（清除缓存重新获取）"""
+    global _cached_session_key, _cached_session_key_time
+    with _session_key_lock:
+        _cached_session_key = None
+        _cached_session_key_time = 0
+    return get_session_key()
+
+
+def sa_request(method, path, body=None, timeout=30, _retry=True):
+    """发送认证请求到 super-agent，认证失败自动刷新key重试一次"""
     headers = sign_request(method, path)
     url = f"{SUPER_AGENT_BASE}{path}"
 
@@ -231,17 +240,27 @@ def sa_request(method, path, body=None, timeout=30):
             return resp.status, resp_body, dict(resp.headers)
     except urllib.error.HTTPError as e:
         resp_body = e.read().decode()
+        # 认证失败：强制刷新key重试一次
+        if _retry and e.code in (401, 403):
+            print(f"[WARN] super-agent认证失败({e.code})，刷新key重试...", file=sys.stderr)
+            _force_refresh_session_key()
+            return sa_request(method, path, body, timeout, _retry=False)
         return e.code, resp_body, dict(e.headers)
     except Exception as e:
         return None, str(e), {}
 
 
 def create_session(directory=DEFAULT_DIRECTORY, title=None):
-    """创建新的 super-agent 会话"""
+    """创建新的 super-agent 会话，失败时自动刷新key重试"""
     body = {"directory": directory} if directory else {}
     if title:
         body["title"] = title
     status, resp, _ = sa_request("POST", "/session", body)
+    if status == 200:
+        data = json.loads(resp)
+        return data.get("id") or data.get("data", {}).get("id")
+    # 重试一次（sa_request内部已处理认证重试，这里是额外保险）
+    status, resp, _ = sa_request("POST", "/session", body, _retry=True)
     if status == 200:
         data = json.loads(resp)
         return data.get("id") or data.get("data", {}).get("id")
