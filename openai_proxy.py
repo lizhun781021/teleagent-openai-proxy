@@ -47,10 +47,34 @@ DEFAULT_DIRECTORY = os.path.expanduser("~/.local/share/TeleAgent/TeleAgent的工
 DEFAULT_PROVIDER = "NewApi"
 DEFAULT_MODEL = "chat-pro"
 
+# 动态默认模型（可通过API修改）
+_dynamic_default_provider = DEFAULT_PROVIDER
+_dynamic_default_model = DEFAULT_MODEL
+
+# 动态默认模型管理函数
+def get_default_model():
+    """获取当前默认模型"""
+    with _default_model_lock:
+        return f"{_dynamic_default_provider}/{_dynamic_default_model}"
+
+def set_default_model(provider_id, model_id):
+    """设置默认模型"""
+    global _dynamic_default_provider, _dynamic_default_model
+    with _default_model_lock:
+        _dynamic_default_provider = provider_id
+        _dynamic_default_model = model_id
+    return True
+
+def get_default_model_parts():
+    """获取默认模型的provider和model部分"""
+    with _default_model_lock:
+        return _dynamic_default_provider, _dynamic_default_model
+
 # Session key 缓存
 _cached_session_key = None
 _cached_session_key_time = 0
 _session_key_lock = threading.Lock()
+_default_model_lock = threading.Lock()  # 保护默认模型切换
 
 # ============================================================
 # 全局状态跟踪
@@ -643,6 +667,8 @@ class OpenAIHandler(BaseHTTPRequestHandler):
     def _send_sse_end(self):
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
+        # SSE 流结束后必须关闭连接，否则客户端 fetch 永远等不到 EOF 而挂起
+        self.close_connection = True
 
     def do_GET(self):
         # 去掉 query string
@@ -663,6 +689,8 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             self._handle_api_sessions()
         elif path == "/api/stats":
             self._handle_api_stats()
+        elif path == "/api/default-model":
+            self._handle_api_default_model()
         else:
             self._send_json(404, {"error": {"message": "Not found", "type": "invalid_request"}})
 
@@ -672,6 +700,8 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             self._handle_chat_completions()
         elif path == "/api/test":
             self._handle_api_test()
+        elif path == "/api/default-model":
+            self._handle_api_default_model()
         else:
             self._send_json(404, {"error": {"message": "Not found", "type": "invalid_request"}})
 
@@ -702,7 +732,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                 "uptime_seconds": uptime,
                 "uptime_human": _format_uptime(uptime),
                 "listen": f"0.0.0.0:{self.server.server_address[1]}",
-                "default_model": f"{DEFAULT_PROVIDER}/{DEFAULT_MODEL}",
+                "default_model": get_default_model(),
                 "default_directory": DEFAULT_DIRECTORY,
             },
             "super_agent": {
@@ -722,6 +752,9 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             try:
                 data = json.loads(resp)
                 for p in data.get("all", []):
+                    # 只显示 TeleAgent 中已配置成功的 provider（source=config）
+                    if p.get("source") != "config":
+                        continue
                     pid = p.get("id", "")
                     pname = p.get("name", pid)
                     models = []
@@ -764,6 +797,44 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             "uptime_seconds": int(time.time() - PROXY_START_TIME),
         })
 
+    def _handle_api_default_model(self):
+        """处理默认模型设置请求"""
+        # 获取当前默认模型
+        if self.command == "GET":
+            current = get_default_model()
+            self._send_json(200, {"default_model": current})
+            return
+        
+        # 设置新默认模型
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            req_data = json.loads(body)
+        except:
+            self._send_json(400, {"error": "Invalid JSON"})
+            return
+        
+        model = req_data.get("model")
+        if not model:
+            self._send_json(400, {"error": "model is required"})
+            return
+        
+        if "/" in model:
+            provider_id, model_id = model.split("/", 1)
+        else:
+            # 如果没有指定provider，使用当前默认provider
+            provider_id, model_id = get_default_model_parts()
+            model_id = model
+        
+        if set_default_model(provider_id, model_id):
+            self._send_json(200, {
+                "success": True,
+                "default_model": get_default_model(),
+                "message": f"默认模型已更改为 {get_default_model()}"
+            })
+        else:
+            self._send_json(500, {"error": "Failed to set default model"})
+
     def _handle_api_test(self):
         try:
             content_length = int(self.headers.get("Content-Length", 0))
@@ -772,12 +843,12 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         except:
             self._send_json(400, {"error": "Invalid JSON"})
             return
-        model = req_data.get("model", f"{DEFAULT_PROVIDER}/{DEFAULT_MODEL}")
+        model = req_data.get("model", get_default_model())
         prompt = req_data.get("prompt", "你好")
         if "/" in model:
             provider_id, model_id = model.split("/", 1)
         else:
-            provider_id, model_id = DEFAULT_PROVIDER, model
+            provider_id, model_id = get_default_model_parts()
         session_id = create_session(directory=DEFAULT_DIRECTORY, title="console-test")
         if not session_id:
             self._send_json(500, {"error": "Failed to create session"})
@@ -859,13 +930,14 @@ class OpenAIHandler(BaseHTTPRequestHandler):
 
         messages = req_data.get("messages", [])
         stream = req_data.get("stream", False)
-        model = req_data.get("model", f"{DEFAULT_PROVIDER}/{DEFAULT_MODEL}")
+        model = req_data.get("model", get_default_model())
+        stream_options = req_data.get("stream_options", {}) or {}
 
         # 解析模型 provider/model
         if "/" in model:
             provider_id, model_id = model.split("/", 1)
         else:
-            provider_id, model_id = DEFAULT_PROVIDER, model
+            provider_id, model_id = get_default_model_parts()
 
         # 生成请求 ID
         request_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
@@ -919,13 +991,15 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         # 包装回调以记录日志
         if stream:
             self._handle_streaming_logged(session_id, messages, request_id, created,
-                                          provider_id, model_id, log_entry, start_time)
+                                          provider_id, model_id, log_entry, start_time,
+                                          stream_options)
         else:
             self._handle_non_streaming_logged(session_id, messages, request_id, created,
                                                provider_id, model_id, log_entry, start_time)
 
     def _handle_streaming_logged(self, session_id, messages, request_id, created,
-                                  provider_id, model_id, log_entry, start_time):
+                                  provider_id, model_id, log_entry, start_time,
+                                  stream_options=None):
         """流式响应（带日志）"""
         # 发送 SSE 响应头
         self._send_sse_headers()
@@ -934,6 +1008,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         collected_text = []
         collected_tokens = None
         has_error = False
+        stream_options = stream_options or {}
 
         def send_delta(text):
             nonlocal first_chunk_sent
@@ -969,6 +1044,22 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                 "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
             }
             self._send_sse_chunk(end_chunk)
+            # 客户端请求 include_usage 时，发送带 usage 的最终 chunk（OpenAI/AI SDK 兼容）
+            if stream_options.get("include_usage"):
+                listener_tokens = getattr(listener, 'tokens', None) or {}
+                usage = {
+                    "prompt_tokens": listener_tokens.get("input", 0),
+                    "completion_tokens": listener_tokens.get("output", 0),
+                    "total_tokens": listener_tokens.get("total",
+                                                       listener_tokens.get("input", 0) + listener_tokens.get("output", 0)),
+                }
+                usage_chunk = {
+                    "id": request_id, "object": "chat.completion.chunk",
+                    "created": created, "model": model_name,
+                    "choices": [],
+                    "usage": usage,
+                }
+                self._send_sse_chunk(usage_chunk)
             self._send_sse_end()
             # 更新日志
             log_entry["status"] = "success"
@@ -1336,6 +1427,21 @@ button.ghost:hover{background:var(--dim)}
     <div id="systemInfo"></div>
   </div>
   <div class="card">
+    <div class="card-title">默认模型设置</div>
+    <div style="margin-bottom:12px">
+      <label>当前默认模型</label>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+        <select id="currentDefaultModel" style="flex:1"></select>
+        <button class="primary" onclick="saveDefaultModel()">保存设置</button>
+        <button class="ghost" onclick="loadDefaultModel()">刷新</button>
+      </div>
+      <div style="margin-top:8px;color:var(--dim);font-size:12px">
+        修改后将立即生效，影响所有未指定模型的API请求
+      </div>
+    </div>
+    <div id="defaultModelStatus" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
     <div class="card-title">API 端点说明</div>
     <div id="apiDocs"></div>
   </div>
@@ -1607,6 +1713,69 @@ async function loadStatus() {
   }
 }
 
+// ===== 默认模型管理 =====
+async function loadDefaultModel() {
+  try {
+    const r = await fetch(API + '/api/default-model');
+    const d = await r.json();
+    const currentModel = d.default_model;
+    
+    // 填充模型选择下拉框
+    const sel = document.getElementById('currentDefaultModel');
+    if (sel.options.length === 0) {
+      // 从modelCache中加载模型选项
+      modelCache.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        sel.appendChild(opt);
+      });
+    }
+    
+    // 设置当前默认模型
+    for (let i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === currentModel) {
+        sel.selectedIndex = i;
+        break;
+      }
+    }
+    
+    document.getElementById('defaultModelStatus').innerHTML = 
+      `<div style="color:var(--green);font-size:12px">当前默认模型: ${currentModel}</div>`;
+  } catch(e) {
+    document.getElementById('defaultModelStatus').innerHTML = 
+      `<div style="color:var(--red);font-size:12px">加载失败: ${e.message}</div>`;
+  }
+}
+
+async function saveDefaultModel() {
+  const sel = document.getElementById('currentDefaultModel');
+  const model = sel.value;
+  if (!model) return;
+  
+  try {
+    const r = await fetch(API + '/api/default-model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model })
+    });
+    const d = await r.json();
+    
+    if (d.success) {
+      document.getElementById('defaultModelStatus').innerHTML = 
+        `<div style="color:var(--green);font-size:12px">✓ ${d.message}</div>`;
+      // 刷新仪表盘显示
+      loadStatus();
+    } else {
+      document.getElementById('defaultModelStatus').innerHTML = 
+        `<div style="color:var(--red);font-size:12px">保存失败: ${d.error}</div>`;
+    }
+  } catch(e) {
+    document.getElementById('defaultModelStatus').innerHTML = 
+      `<div style="color:var(--red);font-size:12px">请求失败: ${e.message}</div>`;
+  }
+}
+
 // ===== 模型 =====
 async function loadModels() {
   try {
@@ -1645,18 +1814,31 @@ async function loadModels() {
     document.getElementById('modelList').innerHTML = html;
     document.getElementById('modelCount').textContent = `共 ${d.providers?.length || 0} 个 Provider，${total} 个模型`;
 
-    // 填充测试页模型选择
-    const sel = document.getElementById('testModel');
-    if (sel.options.length === 0) {
-      modelCache.forEach(m => {
-        const opt = document.createElement('option');
-        opt.value = m; opt.textContent = m;
-        if (m === 'NewApi/chat-pro') opt.selected = true;
-        sel.appendChild(opt);
-      });
-    }
+    // 同步刷新测试页与系统页的模型下拉框（始终重建，保留当前选中项）
+    refreshModelSelect('testModel', modelCache, 'NewApi/chat-pro');
+    refreshModelSelect('currentDefaultModel', modelCache, null);
+    // 同步默认模型显示状态
+    loadDefaultModel();
   } catch(e) {
     document.getElementById('modelList').innerHTML = '<div style="color:var(--red)">加载失败</div>';
+  }
+}
+
+// 重建模型下拉框：保留原选中项，若原选中项已不存在则保留第一个
+function refreshModelSelect(selId, models, fallback) {
+  const sel = document.getElementById(selId);
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '';
+  models.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m; opt.textContent = m;
+    sel.appendChild(opt);
+  });
+  if (prev && models.includes(prev)) {
+    sel.value = prev;
+  } else if (fallback && models.includes(fallback)) {
+    sel.value = fallback;
   }
 }
 function toggleGroup(id) {
@@ -1790,6 +1972,10 @@ function formatNum(n) {
 // ===== 初始化 =====
 loadStatus();
 loadModels();
+// 延迟加载默认模型，确保modelCache已填充
+setTimeout(loadDefaultModel, 1000);
+// 每 30 秒自动刷新模型列表，TeleAgent 新增配置后自动同步到面板
+setInterval(loadModels, 30000);
 setInterval(loadStatus, 5000);
 </script>
 </body>

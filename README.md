@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '14e0e1c5-9bf6-40d5-aaa7-1ca5e818b05c'
-  PropagateID: '14e0e1c5-9bf6-40d5-aaa7-1ca5e818b05c'
-  ReservedCode1: '9135cb09-3b78-4cdb-a690-b6dfc0a370fe'
-  ReservedCode2: '9135cb09-3b78-4cdb-a690-b6dfc0a370fe'
+  ProduceID: 'd90e64ea-64f4-49bb-acbf-8be5f9ac88cb'
+  PropagateID: 'd90e64ea-64f4-49bb-acbf-8be5f9ac88cb'
+  ReservedCode1: 'f5a009ce-34c5-4d59-8c67-b58a2ed012ff'
+  ReservedCode2: 'f5a009ce-34c5-4d59-8c67-b58a2ed012ff'
 ---
 
 # TeleAgent OpenAI-Compatible Proxy
@@ -19,7 +19,8 @@ AIGC:
 - **流式 & 非流式**：支持 SSE 流式输出和一次性返回
 - **多轮对话**：通过 messages 数组传入完整历史
 - **自动签名**：自动从运行中的 scheduler 进程获取 session key
-- **224 个模型**：支持 19 个 Provider（云端 + 本地）
+- **模型管理**：只展示 TeleAgent 中已配置成功的 Provider 与模型（未配置密钥的内置模型目录自动隐藏），TeleAgent 新增配置后面板每 30 秒自动同步
+- **默认模型可切换**：Web 控制台可动态修改默认模型，立即生效，影响所有未显式指定 `model` 的 API 请求
 - **Web 控制台**：内置仪表盘、模型管理、请求日志、在线测试、会话管理
 - **持久化运行**：通过 macOS launchd 开机自启、崩溃自动重启
 - **零依赖**：纯 Python 标准库实现，无需 pip install
@@ -95,7 +96,8 @@ print(resp.choices[0].message.content)
 访问 `http://127.0.0.1:8088/console` 即可使用：
 
 - **仪表盘**：实时统计（请求数/Token/错误率）、服务状态、模型调用统计
-- **模型管理**：浏览全部 224 个模型，按 Provider 分组
+- **模型管理**：浏览 TeleAgent 中已配置成功的模型（按 Provider 分组），新增配置自动同步
+- **默认模型设置**：在「系统」页修改默认模型，保存后立即生效
 - **请求日志**：查看最近 200 条请求的时间/模型/状态/耗时/Token
 - **在线测试**：直接在页面发送请求并查看响应
 - **会话管理**：查看 super-agent 创建的会话列表
@@ -185,7 +187,9 @@ signature = HMAC-SHA256(session_key, payload).digest("base64url")
 | GET | `/health` | 健康检查 |
 | GET | `/console` | Web 控制台页面 |
 | GET | `/api/status` | 代理服务状态 |
-| GET | `/api/models` | 详细模型列表 |
+| GET | `/api/models` | 详细模型列表（仅含 TeleAgent 已配置的 Provider/模型） |
+| GET | `/api/default-model` | 获取当前默认模型 |
+| POST | `/api/default-model` | 修改默认模型（立即生效） |
 | GET | `/api/logs` | 请求日志 |
 | GET | `/api/sessions` | super-agent 会话列表 |
 | GET | `/api/stats` | 统计数据 |
