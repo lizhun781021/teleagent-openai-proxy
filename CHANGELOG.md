@@ -3,16 +3,22 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '79c74512-5b0b-45cf-8990-5c081f157090'
-  PropagateID: '79c74512-5b0b-45cf-8990-5c081f157090'
-  ReservedCode1: '30735873-fc23-443d-b7ae-8f581d18d627'
-  ReservedCode2: '30735873-fc23-443d-b7ae-8f581d18d627'
+  ProduceID: '0977943f-fca0-49ea-b074-0c9f5913bd45'
+  PropagateID: '0977943f-fca0-49ea-b074-0c9f5913bd45'
+  ReservedCode1: '5332f86d-51e4-4583-aba1-5935b90bf8e2'
+  ReservedCode2: '5332f86d-51e4-4583-aba1-5935b90bf8e2'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.5.1] - 2026-08-18
+
+### 新增
+
+- 项目内备份最新版「OpenAI 代理管理器」技能（`skills/openai-proxy-manager/`）：含 SKILL.md 与 `scripts/proxy_model.py`（默认模型 status/set/list 管理脚本）
 
 ## [1.5.0] - 2026-08-18
 
