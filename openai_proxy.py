@@ -1623,19 +1623,20 @@ print(resp.json()["choices"][0]["message"]["content"])<button class="copy-btn" o
     </div>
 
     <div class="guide-section">
-      <h3><span class="num">6</span>多轮对话</h3>
-      <p>每次请求会自动创建一个新的 super-agent 会话。多轮对话只需在 <code>messages</code> 中传入完整历史：</p>
+      <h3><span class="num">6</span>多轮对话与会话复用</h3>
+      <p>默认每次请求自动创建新的 super-agent 会话（无上下文记忆）。<b>带 <code>session_title</code> 参数时按标题复用</b>：同名会话已存在则复用同一会话，上下文自动延续，一句话不再开一个会话。多轮对话示例：</p>
       <div class="code-block" id="curl-multi">curl http://127.0.0.1:8088/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "NewApi/chat-pro",
+    "session_title": "企微|私聊|wo-xxxxxxxx",
     "messages": [
       {"role": "user", "content": "我叫小明"},
       {"role": "assistant", "content": "你好小明！"},
       {"role": "user", "content": "我叫什么名字？"}
     ]
   }'<button class="copy-btn" onclick="copyCode('curl-multi')">复制</button></div>
-      <div class="warn">注意：每次请求都是独立的会话，不会保留上一轮的上下文。多轮上下文需在 messages 数组中完整传入。</div>
+      <div class="tip">同一 <code>session_title</code> 的后续请求自动复用同一会话，AI 保留上下文；不同标题之间完全隔离。不传标题则每次新建（兼容旧行为）。</div>
     </div>
 
     <div class="guide-section">
@@ -1680,8 +1681,8 @@ python3 ~/Desktop/星小辰工作空间/openai-proxy/openai_proxy.py --port 8088
       <h3><span class="num">10</span>注意事项</h3>
       <ul>
         <li><b>Session Key</b>：代理自动从运行中的 scheduler 进程获取签名密钥，TeleAgent 重启后自动刷新，无需手动配置</li>
-        <li><b>请求延迟</b>：首次请求需创建会话 + 等待 SSE 事件，通常 3-6 秒；后续请求类似</li>
-        <li><b>会话清理</b>：每次 API 请求会创建一个 super-agent 会话，可在「会话」页面查看</li>
+        <li><b>请求延迟</b>：首次请求需创建会话 + 等待 SSE 事件，通常 3-6 秒；复用会话的请求略快</li>
+        <li><b>会话复用</b>：带 <code>session_title</code> 时按标题复用（企微/QQ 机器人固定标题，同一用户/同一群一个会话）；不传则每次新建</li>
         <li><b>并发限制</b>：底层 super-agent 为单实例，建议避免高并发请求</li>
         <li><b>Token 统计</b>：从 super-agent SSE 事件中提取，包含输入/输出/推理/缓存 token</li>
         <li><b>系统代理冲突</b>：若本机开了 HTTP 代理（如 Clash），curl 需加 <code>--noproxy '*'</code> 或设置 <code>no_proxy=127.0.0.1</code></li>
@@ -1779,7 +1780,7 @@ async function loadStatus() {
       <div class="status-row"><span class="key">签名版本</span><span class="val">local-v1 (HMAC-SHA256 + base64url)</span></div>
       <div class="status-row"><span class="key">Session Key 来源</span><span class="val">pgrep scheduler → ps eww</span></div>
       <div class="status-row"><span class="key">SSE 事件流</span><span class="val">/global/event</span></div>
-      <div class="status-row"><span class="key">会话创建方式</span><span class="val">每次请求新建会话</span></div>`;
+      <div class="status-row"><span class="key">会话创建方式</span><span class="val">按 session_title 复用，无标题则新建</span></div>`;
 
     // API 文档
     document.getElementById('apiDocs').innerHTML = `
