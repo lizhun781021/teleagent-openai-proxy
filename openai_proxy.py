@@ -291,6 +291,92 @@ def create_session(directory=DEFAULT_DIRECTORY, title=None):
     return None
 
 
+# ============================================================
+# 会话按标题复用（企微/QQ机器人：同一用户/同一群复用同一会话）
+# ============================================================
+# 机器人端把会话标题固定为稳定标识（如 "企微|私聊|userid"、"QQ|群聊|group_openid"），
+# 代理端按标题复用已存在会话，避免一句话开一个会话导致上下文断裂。
+_session_cache = {}          # title -> (session_id, timestamp)
+_session_cache_lock = threading.Lock()
+_title_create_locks = {}     # title -> Lock（同名并发创建互斥）
+SESSION_CACHE_TTL = 120      # 秒：本地缓存有效期（避免每次请求都查列表）
+_SESSION_QUERY_LIMIT = 300   # 查询会话列表上限
+
+
+def get_session_by_title(title, directory=DEFAULT_DIRECTORY):
+    """在 super-agent 会话列表中按标题精确匹配，返回最新更新的 session_id（无则 None）
+    只匹配同目录，避免误复用其他目录的同名会话。
+    """
+    if not title:
+        return None
+    status, resp, _ = sa_request("GET", f"/session?limit={_SESSION_QUERY_LIMIT}", timeout=10)
+    if status != 200:
+        return None
+    try:
+        sessions = json.loads(resp)
+    except Exception:
+        return None
+    if not isinstance(sessions, list):
+        return None
+    matched = []
+    for s in sessions:
+        if s.get("title") != title:
+            continue
+        # 目录过滤：仅当两侧都有值时校验一致；super-agent 返回可能缺 directory 字段
+        s_dir = s.get("directory", "") or ""
+        if directory and s_dir and os.path.normpath(s_dir) != os.path.normpath(directory):
+            continue
+        matched.append(s)
+    if not matched:
+        return None
+    # 取 updated 最新（time 可能缺失，防御处理）
+    matched.sort(
+        key=lambda s: ((s.get("time") or {}).get("updated") or 0),
+        reverse=True
+    )
+    return matched[0].get("id")
+
+
+def get_or_create_session(directory=DEFAULT_DIRECTORY, title=None):
+    """按标题复用会话：标题已存在同名会话则返回其 session_id，否则新建。
+    返回 (session_id, reused: bool)；失败返回 (None, False)。
+    并发保护：同一标题同时请求时只创建一次。
+    """
+    if not title:
+        return create_session(directory=directory, title=None), False
+
+    now = time.time()
+    # 1. 本地缓存命中
+    with _session_cache_lock:
+        cached = _session_cache.get(title)
+        if cached and now - cached[1] < SESSION_CACHE_TTL:
+            return cached[0], True
+
+    # 2. 按标题查已有会话
+    sid = get_session_by_title(title, directory=directory)
+    if sid:
+        with _session_cache_lock:
+            _session_cache[title] = (sid, now)
+        return sid, True
+
+    # 3. 新建会话（进程内同名互斥，避免并发重复创建）
+    with _session_cache_lock:
+        _title_create_locks.setdefault(title, threading.Lock())
+        create_lock = _title_create_locks[title]
+    with create_lock:
+        # 双检：等待锁期间可能已被其他线程创建
+        _sid = get_session_by_title(title, directory=directory)
+        if _sid:
+            with _session_cache_lock:
+                _session_cache[title] = (_sid, time.time())
+            return _sid, True
+        sid = create_session(directory=directory, title=title)
+        if sid:
+            with _session_cache_lock:
+                _session_cache[title] = (sid, time.time())
+        return sid, False
+
+
 def send_prompt_async(session_id, messages, directory=DEFAULT_DIRECTORY,
                       provider_id=DEFAULT_PROVIDER, model_id=DEFAULT_MODEL):
     """异步发送消息到 super-agent 会话"""
@@ -950,9 +1036,10 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         # 读取自定义会话标题（机器人可传"姓名 | 技能 | 时间"）
         session_title = req_data.get("session_title") or f"API-{request_id}"
 
-        # 创建会话
-        session_id = create_session(directory=DEFAULT_DIRECTORY,
-                                     title=session_title)
+        # 创建会话（带标题时按标题复用，避免机器人一句话开一个会话）
+        session_id, session_reused = get_or_create_session(
+            directory=DEFAULT_DIRECTORY, title=session_title
+        )
         if not session_id:
             self._send_json(500, {"error": {"message": "Failed to create session", "type": "server_error"}})
             return
@@ -978,6 +1065,8 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             "model": model,
             "stream": stream,
             "session_id": session_id,
+            "session_title": session_title,
+            "session_reused": session_reused,
             "status": "pending",
             "prompt_preview": prompt_preview,
             "response_preview": "",

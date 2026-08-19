@@ -3,16 +3,28 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '0977943f-fca0-49ea-b074-0c9f5913bd45'
-  PropagateID: '0977943f-fca0-49ea-b074-0c9f5913bd45'
-  ReservedCode1: '5332f86d-51e4-4583-aba1-5935b90bf8e2'
-  ReservedCode2: '5332f86d-51e4-4583-aba1-5935b90bf8e2'
+  ProduceID: 'af65fab9-0deb-423e-9228-aa96f676ba9d'
+  PropagateID: 'af65fab9-0deb-423e-9228-aa96f676ba9d'
+  ReservedCode1: '3e54bad2-f4c7-4cc6-84fc-5b9314bca07d'
+  ReservedCode2: '3e54bad2-f4c7-4cc6-84fc-5b9314bca07d'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.6.0] - 2026-08-19
+
+### 新增
+
+- 会话按标题复用：`POST /v1/chat/completions` 请求带 `session_title` 时，若 super-agent 已存在同名会话则复用其 session_id，不再每次新建
+- 新增 `get_or_create_session()` / `get_session_by_title()`：按标题精确匹配 + 同目录过滤 + 取最新更新会话 + 本地 120 秒缓存 + 同名并发创建互斥
+- 请求日志新增 `session_title` / `session_reused` 字段，便于排查会话复用情况
+
+### 变更
+
+- 会话标题语义调整：机器人端（企微/QQ）不再在标题中带时间戳，改为稳定标识（私聊=userid/openid，群聊=chatid/group_openid），同一用户/同一群固定一个会话，对话上下文可跨消息延续
 
 ## [1.5.1] - 2026-08-18
 
