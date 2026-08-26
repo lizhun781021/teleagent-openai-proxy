@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>本地AI代理 + 企微QQ量子密信三通道机器人 + 河南标准化赋能 · 三合一融合介绍</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --blue:#1a6bc4; --blue-l:#2f8bff; --green:#1f8a4c; --green-l:#2fbf6f;
+    --orange:#e07b1d; --orange-l:#f5a623; --purple:#8e5cf0; --purple-l:#b08cff;
+    --ink:#0f3a6b; --text:#33415c; --light:#f4f7fb;
+    /* responsive scales */
+    --slide-pad-x: clamp(20px, 6vw, 80px);
+    --slide-pad-y: clamp(16px, 4vw, 48px);
+    --card-gap: clamp(10px, 1.5vw, 16px);
+  }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei","Helvetica Neue",sans-serif;
+    background:#1a1a2e; color:var(--text);
+    -webkit-font-smoothing:antialiased; overflow:hidden;
+  }
+
+  /* ===== Slide Container ===== */
+  #deck { position:relative; width:100vw; height:100vh; overflow:hidden; }
+  .slide {
+    position:absolute; top:0; left:0; width:100%; height:100%;
+    display:flex; flex-direction:column; justify-content:center;
+    padding:var(--slide-pad-y) var(--slide-pad-x);
+    opacity:0; pointer-events:none;
+    transition:opacity 0.5s ease, transform 0.5s ease;
+    transform:translateX(40px);
+    overflow-y:auto;
+  }
+  .slide.active { opacity:1; pointer-events:auto; transform:translateX(0); }
+  .slide.prev { transform:translateX(-40px); }
+
+  /* ===== Slide background themes ===== */
+  .slide.bg-hero {
+    background:linear-gradient(135deg,#e8f0fd 0%,#dbe9fb 30%,#e6f0f8 55%,#e8f5ee 80%,#f5f0ff 100%);
+  }
+  .slide.bg-light { background:linear-gradient(180deg,#f4f7fb 0%,#eef3f8 100%); }
+  .slide.bg-blue { background:linear-gradient(135deg,#e8f1fc,#d4e5f8); }
+  .slide.bg-green { background:linear-gradient(135deg,#e8f8ee,#d4f0e0); }
+  .slide.bg-orange { background:linear-gradient(135deg,#fef5e7,#fde8cc); }
+  .slide.bg-purple { background:linear-gradient(135deg,#f3eefe,#e8def8); }
+  .slide.bg-dark {
+    background:linear-gradient(135deg,#1a1a2e,#16213e); color:#e0e8f0;
+  }
+
+  /* ===== Banner slides (Part dividers) ===== */
+  .banner-slide { justify-content:center; align-items:center; text-align:center; padding:clamp(20px,6vw,80px); }
+  .banner-slide .part-label {
+    font-size:clamp(14px,2.2vw,22px); letter-spacing:clamp(3px,0.6vw,6px); font-weight:700; opacity:0.7; margin-bottom:clamp(8px,1.2vw,16px);
+  }
+  .banner-slide h2 {
+    font-size:clamp(28px,5.5vw,52px); font-weight:900; letter-spacing:clamp(1px,0.4vw,4px); margin-bottom:clamp(10px,1.5vw,18px);
+  }
+  .banner-slide .sub { font-size:clamp(14px,2vw,22px); font-weight:500; opacity:0.8; }
+  .banner-slide.a h2 { color:var(--blue); }
+  .banner-slide.b h2 { color:var(--green); }
+  .banner-slide.c h2 { color:var(--orange); }
+  .banner-slide.d h2 { color:var(--purple); }
+
+  /* ===== Content typography ===== */
+  .s-title { font-size:clamp(22px,3.2vw,38px); font-weight:800; color:var(--ink); margin-bottom:6px; }
+  .s-sub { font-size:clamp(13px,1.4vw,18px); color:#7a9cc9; margin-bottom:clamp(16px,2.2vw,28px); font-weight:500; }
+  .s-head {
+    display:flex; align-items:center; gap:clamp(8px,1.1vw,14px); margin-bottom:clamp(14px,2vw,24px);
+    flex-wrap:wrap;
+  }
+  .s-head .idx {
+    width:clamp(34px,3.8vw,48px); height:clamp(34px,3.8vw,48px); border-radius:clamp(8px,1vw,12px); display:flex;
+    align-items:center; justify-content:center; font-size:clamp(16px,2vw,24px);
+    font-weight:800; color:#fff; flex-shrink:0;
+  }
+  .s-head .idx.blue { background:linear-gradient(135deg,var(--blue),var(--blue-l)); box-shadow:0 3px 10px rgba(47,139,255,0.25); }
+  .s-head .idx.green { background:linear-gradient(135deg,var(--green),var(--green-l)); box-shadow:0 3px 10px rgba(31,138,76,0.25); }
+  .s-head .idx.orange { background:linear-gradient(135deg,var(--orange),var(--orange-l)); box-shadow:0 3px 10px rgba(224,123,29,0.25); }
+  .s-head .idx.purple { background:linear-gradient(135deg,var(--purple),var(--purple-l)); box-shadow:0 3px 10px rgba(142,92,240,0.25); }
+  .s-head .t1 { font-size:clamp(20px,2.8vw,32px); font-weight:800; color:var(--ink); }
+  .s-head .t2 { font-size:clamp(12px,1.3vw,16px); color:#7a9cc9; margin-left:6px; }
+  .s-head .line { flex:1; height:2px; min-width:20px; background:linear-gradient(90deg,rgba(26,107,196,0.25),transparent); }
+
+  /* ===== KPI cards ===== */
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(160px,100%),1fr)); gap:var(--card-gap); }
+  .kpi {
+    background:#fff; border:1px solid #e1ebf7; border-radius:clamp(10px,1.2vw,16px);
+    padding:clamp(14px,1.6vw,22px) clamp(12px,1.5vw,20px); box-shadow:0 4px 14px rgba(31,84,150,0.08);
+  }
+  .kpi .lab { font-size:clamp(14px,1.4vw,18px); color:#6b87ad; }
+  .kpi .val { font-size:clamp(22px,3vw,36px); font-weight:800; color:var(--blue); margin-top:8px; }
+  .kpi .val small { font-size:clamp(13px,1.4vw,18px); font-weight:600; color:#4f8fd0; }
+  .kpi .note { font-size:clamp(11px,1.1vw,14px); color:#8aa5c8; margin-top:8px; line-height:1.5; }
+  .kpi.green .val { color:var(--green); } .kpi.green .val small { color:#4fb87e; }
+  .kpi.orange .val { color:var(--orange); } .kpi.orange .val small { color:var(--orange-l); }
+  .kpi.purple .val { color:var(--purple); } .kpi.purple .val small { color:var(--purple-l); }
+
+  /* ===== Cards ===== */
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr)); gap:var(--card-gap); }
+  .cards.two { grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr)); }
+  .card {
+    background:#fff; border:1px solid #e1ebf7; border-radius:clamp(10px,1.2vw,16px);
+    padding:clamp(14px,1.6vw,20px) clamp(14px,1.7vw,22px); box-shadow:0 4px 14px rgba(31,84,150,0.08);
+  }
+  .card .ic { font-size:clamp(16px,1.7vw,22px); margin-bottom:clamp(6px,0.8vw,10px); display:inline-block;
+    background:#eef5fd; border-radius:clamp(6px,0.8vw,10px); padding:clamp(4px,0.5vw,6px) clamp(6px,0.8vw,10px); }
+  .card.green .ic { background:#eafaf1; }
+  .card.orange .ic { background:#fef5e7; }
+  .card.purple .ic { background:#f3eefe; }
+  .card h4 { font-size:clamp(15px,1.6vw,20px); font-weight:700; color:var(--ink); margin-bottom:clamp(6px,0.8vw,10px); }
+  .card p { font-size:clamp(12px,1.3vw,16px); color:#55688d; line-height:1.7; }
+  .card p b { color:var(--blue); }
+  .card.green p b { color:var(--green); }
+  .card.orange p b { color:var(--orange); }
+  .card.purple p b { color:var(--purple); }
+
+  /* ===== Table ===== */
+  table { width:100%; border-collapse:collapse; background:#fff;
+    border-radius:clamp(10px,1.1vw,14px); overflow:hidden; box-shadow:0 4px 14px rgba(31,84,150,0.08);
+    display:block; overflow-x:auto; }
+  th { background:#e8f1fc; color:var(--ink); font-size:clamp(12px,1.3vw,17px); font-weight:700; padding:clamp(6px,0.9vw,12px); text-align:center; border:1px solid #e0eaf6; white-space:nowrap; }
+  td { font-size:clamp(11px,1.2vw,16px); color:#3d5478; padding:clamp(6px,0.9vw,12px); text-align:left; border:1px solid #edf3fa; line-height:1.6; }
+  tr:nth-child(even) td { background:#f8fbfe; }
+  td.c, th.c { text-align:center; }
+  td b { color:var(--ink); }
+  td.bl { color:var(--blue); font-weight:700; white-space:nowrap; }
+  td.gl { color:var(--green); font-weight:700; white-space:nowrap; }
+  td.ol { color:var(--orange); font-weight:700; white-space:nowrap; }
+  td.pl { color:var(--purple); font-weight:700; white-space:nowrap; }
+
+  /* ===== Architecture diagram ===== */
+  .arch { background:#fff; border:1px solid #e1ebf7; border-radius:clamp(12px,1.4vw,18px); padding:clamp(16px,2.2vw,28px) clamp(18px,2.5vw,32px);
+    box-shadow:0 4px 14px rgba(31,84,150,0.08); }
+  .arch .row { display:flex; justify-content:center; gap:clamp(8px,1.4vw,18px); flex-wrap:wrap; }
+  .node { border-radius:clamp(8px,1.1vw,14px); padding:clamp(8px,1.1vw,14px) clamp(12px,1.7vw,22px); font-size:clamp(11px,1.25vw,16px); font-weight:700; text-align:center;
+    min-width:clamp(90px,11vw,140px); color:#fff; box-shadow:0 3px 10px rgba(31,84,150,0.15); line-height:1.4; }
+  .node.blue { background:linear-gradient(135deg,var(--blue),var(--blue-l)); }
+  .node.green { background:linear-gradient(135deg,var(--green),var(--green-l)); }
+  .node.purple { background:linear-gradient(135deg,var(--purple),var(--purple-l)); }
+  .node.gray { background:linear-gradient(135deg,#5a7a9c,#7d9cbf); }
+  .node.orange { background:linear-gradient(135deg,var(--orange),var(--orange-l)); }
+  .node span { font-weight:500; font-size:clamp(9px,1vw,13px); display:block; margin-top:4px; opacity:0.9; }
+  .flow { display:flex; align-items:center; justify-content:center; gap:clamp(6px,0.8vw,10px); margin:clamp(6px,0.8vw,10px) 0; font-size:clamp(10px,1.2vw,15px); color:#8aa5c8; flex-wrap:wrap; }
+  .flow .ln { flex:0 0 clamp(20px,2.2vw,28px); text-align:center; font-size:clamp(14px,1.6vw,20px); color:#7fa8d8; }
+  .flow .tag2 { background:#eef3fd; border:1px solid #d7e6f8; color:var(--blue); border-radius:8px; padding:clamp(3px,0.4vw,4px) clamp(8px,1vw,12px); font-size:clamp(10px,1.1vw,14px); font-weight:600; }
+
+  /* ===== Code block ===== */
+  .code {
+    background:#0f233f; border:1px solid rgba(255,255,255,0.12); border-radius:clamp(10px,1.1vw,14px);
+    padding:clamp(12px,1.6vw,20px) clamp(14px,1.9vw,24px);
+    font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:clamp(11px,1.25vw,16px);
+    line-height:1.8; color:#9ec3f5; overflow-x:auto; margin-top:clamp(8px,1vw,12px);
+  }
+  .code .cm { color:#6b8db8; }
+
+  /* ===== Box (dual columns) ===== */
+  .duo { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr)); gap:var(--card-gap); }
+  .duo.two { grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr)); }
+  .box { border-radius:clamp(10px,1.2vw,16px); padding:clamp(14px,1.7vw,22px) clamp(15px,1.9vw,24px); background:#fff; border:1px solid #e1ebf7;
+    box-shadow:0 4px 14px rgba(31,84,150,0.08); }
+  .box h3 { font-size:clamp(15px,1.6vw,20px); font-weight:800; color:var(--ink); margin-bottom:clamp(8px,1.1vw,14px); display:flex; align-items:center; gap:8px; }
+  .box h3 .dot { width:clamp(7px,0.8vw,9px); height:clamp(7px,0.8vw,9px); border-radius:50%; display:inline-block; flex-shrink:0; }
+  .box ul { list-style:none; }
+  .box li { font-size:clamp(12px,1.3vw,16px); color:#445c80; line-height:1.8; padding:clamp(4px,0.5vw,7px) 0; border-bottom:1px dashed #e6eef7; }
+  .box li:last-child { border-bottom:none; }
+  .box li b { color:#1c3a63; }
+  .box li .v { color:var(--blue); font-weight:700; }
+
+  /* ===== Scene cards ===== */
+  .scenes { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:var(--card-gap); }
+  .scene { background:#fff; border:1px solid #e1ebf7; border-radius:clamp(10px,1.2vw,16px); padding:clamp(14px,1.6vw,20px) clamp(14px,1.7vw,22px);
+    box-shadow:0 4px 14px rgba(31,84,150,0.08); }
+  .scene h4 { font-size:clamp(13px,1.4vw,18px); font-weight:700; color:var(--ink); margin-bottom:clamp(6px,0.8vw,10px); display:flex; align-items:center; gap:8px; }
+  .scene h4 .no { font-size:clamp(11px,1.1vw,14px); background:var(--purple); color:#fff; border-radius:50%; width:clamp(20px,2vw,26px); height:clamp(20px,2vw,26px); display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .scene p { font-size:clamp(12px,1.3vw,16px); color:#55688d; line-height:1.75; }
+  .scene p b { color:var(--purple); }
+  .scene .chain { margin-top:clamp(8px,1vw,12px); padding:clamp(8px,1vw,12px) clamp(10px,1.1vw,14px); background:#f8f6fe; border:1px solid #e6dff5; border-radius:10px; font-size:clamp(10px,1.1vw,14px); color:#6b5c8a; line-height:1.8; }
+  .scene .chain b { color:var(--purple); }
+  .scene .chain .arrow { color:var(--purple-l); font-weight:700; margin:0 3px; }
+
+  /* ===== Hero slide ===== */
+  .hero-tag {
+    display:inline-block; background:#fff; border:1px solid #cfe0f5;
+    color:var(--blue); font-size:clamp(13px,1.6vw,20px); padding:clamp(5px,0.7vw,8px) clamp(14px,2vw,26px); border-radius:999px;
+    letter-spacing:clamp(1px,0.2vw,2px); box-shadow:0 2px 6px rgba(26,92,173,0.08);
+  }
+  .hero-title { font-size:clamp(28px,5vw,56px); font-weight:900; color:var(--ink); margin-top:clamp(16px,2.2vw,28px); letter-spacing:clamp(1px,0.3vw,3px); line-height:1.3; }
+  .hero-sub { font-size:clamp(14px,2vw,24px); color:#5a83b8; margin-top:clamp(10px,1.5vw,18px); font-weight:500; line-height:1.5; max-width:900px; }
+  .hero-meta { display:flex; flex-wrap:wrap; gap:clamp(14px,3vw,40px); margin-top:clamp(20px,3vw,40px); font-size:clamp(14px,1.8vw,22px); color:#48689a; }
+  .hero-meta span b { font-size:clamp(20px,2.8vw,32px); margin-right:6px; }
+  .hero-meta .b1 b { color:var(--blue); }
+  .hero-meta .b2 b { color:var(--green); }
+  .hero-meta .b3 b { color:var(--orange); }
+  .hero-meta .b4 b { color:var(--purple); }
+
+  /* ===== End slide ===== */
+  .end-content { text-align:center; color:#e0e8f0; }
+  .end-content h2 { font-size:clamp(28px,4.2vw,48px); font-weight:900; margin-bottom:20px; color:#fff; }
+  .end-content p { font-size:clamp(14px,1.8vw,22px); color:#a0b0c8; line-height:1.7; }
+  .end-content .brand { font-size:clamp(18px,2.2vw,26px); color:var(--blue-l); font-weight:700; margin-top:clamp(20px,2.5vw,32px); letter-spacing:clamp(1px,0.3vw,3px); }
+
+  /* ===== Navigation ===== */
+  #nav {
+    position:fixed; bottom:0; left:0; right:0; height:clamp(44px,4.5vw,56px);
+    background:rgba(20,20,40,0.92); backdrop-filter:blur(10px);
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 clamp(12px,2.5vw,32px); z-index:999; border-top:1px solid rgba(255,255,255,0.08);
+  }
+  #nav .left, #nav .right { display:flex; align-items:center; gap:clamp(6px,1vw,14px); }
+  #nav button {
+    background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.15);
+    color:#e0e8f0; width:clamp(30px,3.2vw,38px); height:clamp(30px,3.2vw,38px); border-radius:10px; cursor:pointer;
+    font-size:clamp(14px,1.5vw,18px); display:flex; align-items:center; justify-content:center;
+    transition:all 0.2s; flex-shrink:0;
+  }
+  #nav button:hover { background:rgba(255,255,255,0.2); }
+  #nav button:disabled { opacity:0.3; cursor:not-allowed; }
+  #nav .counter { color:#a0b0c8; font-size:clamp(11px,1.3vw,16px); font-weight:500; min-width:clamp(48px,6vw,80px); text-align:center; }
+  #nav .progress { display:none; }
+  @media(min-width:700px) {
+    #nav .progress {
+      display:block; flex:1; height:4px; background:rgba(255,255,255,0.1); border-radius:2px; margin:0 clamp(12px,2vw,24px);
+      position:relative;
+    }
+    #nav .progress-bar {
+      position:absolute; top:0; left:0; height:100%; border-radius:2px;
+      background:linear-gradient(90deg,var(--blue),var(--blue-l));
+      transition:width 0.4s ease;
+    }
+  }
+  #nav .title-display { display:none; }
+  @media(min-width:900px) {
+    #nav .title-display { display:block; color:#8a9ab8; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:25vw; }
+  }
+  #nav .fullscreen-btn {
+    background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.15);
+    color:#e0e8f0; padding:clamp(5px,0.6vw,8px) clamp(10px,1.3vw,16px); border-radius:10px; cursor:pointer; font-size:clamp(11px,1.2vw,14px);
+    transition:all 0.2s; white-space:nowrap;
+  }
+  #nav .fullscreen-btn:hover { background:rgba(255,255,255,0.2); }
+
+  /* ===== Animations ===== */
+  .slide.active .s-head { animation:slideInLeft 0.5s ease 0.1s both; }
+  .slide.active .kpis { animation:fadeUp 0.5s ease 0.2s both; }
+  .slide.active .cards { animation:fadeUp 0.5s ease 0.2s both; }
+  .slide.active .arch { animation:fadeUp 0.5s ease 0.2s both; }
+  .slide.active table { animation:fadeUp 0.5s ease 0.2s both; }
+  .slide.active .duo { animation:fadeUp 0.5s ease 0.2s both; }
+  .slide.active .scenes { animation:fadeUp 0.5s ease 0.2s both; }
+  .slide.active .code { animation:fadeUp 0.5s ease 0.3s both; }
+  .slide.active .hero-tag { animation:fadeIn 0.6s ease 0.1s both; }
+  .slide.active .hero-title { animation:slideInUp 0.6s ease 0.2s both; }
+  .slide.active .hero-sub { animation:slideInUp 0.6s ease 0.3s both; }
+  .slide.active .hero-meta { animation:slideInUp 0.6s ease 0.4s both; }
+  .slide.active .banner-slide .part-label { animation:fadeIn 0.6s ease 0.1s both; }
+  .slide.active .banner-slide h2 { animation:slideInUp 0.6s ease 0.2s both; }
+  .slide.active .banner-slide .sub { animation:slideInUp 0.6s ease 0.3s both; }
+  .slide.active .end-content h2 { animation:slideInUp 0.6s ease 0.2s both; }
+  .slide.active .end-content p { animation:slideInUp 0.6s ease 0.3s both; }
+  .slide.active .end-content .brand { animation:fadeIn 0.6s ease 0.5s both; }
+
+  @keyframes slideInLeft { from{opacity:0; transform:translateX(-30px);} to{opacity:1; transform:translateX(0);} }
+  @keyframes slideInUp { from{opacity:0; transform:translateY(30px);} to{opacity:1; transform:translateY(0);} }
+  @keyframes fadeUp { from{opacity:0; transform:translateY(20px);} to{opacity:1; transform:translateY(0);} }
+  @keyframes fadeIn { from{opacity:0;} to{opacity:1;} }
+
+  /* ===== Compact mode for dense slides ===== */
+  .slide.dense { padding:clamp(14px,3vw,32px) clamp(20px,5vw,64px); }
+
+  /* ===== Mobile: hide dense overrides, let clamp handle scaling ===== */
+  @media(max-width:600px) {
+    .slide.dense .card p { line-height:1.6; }
+    .slide.dense .scene .chain { padding:8px; line-height:1.6; }
+  }
+</style>
+</head>
+<body>
+
+<div id="deck">
+
+  <!-- ====== SLIDE 1: Cover ====== -->
+  <div class="slide bg-hero active" data-title="封面">
+    <span class="hero-tag">本地 AI 代理 × 企微QQ量子密信三通道机器人 × 河南标准化赋能 · 三合一融合介绍</span>
+    <h1 class="hero-title">从 AI 大脑到一线营销的全链路</h1>
+    <div class="hero-sub">三个独立项目，一套融合体系 —— 让 TeleAgent 的 AI 能力，通过标准接口流向企微、QQ 与量子密信的每一个群，再装上河南电信营销的大脑</div>
+    <div class="hero-meta">
+      <span class="b1"><b>3</b>个独立项目</span>
+      <span class="b2"><b>1</b>条完整链路</span>
+      <span class="b3"><b>8088</b>端口桥梁</span>
+      <span class="b4"><b>三通道</b>企微+QQ+密信</span>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 2: Part A Banner ====== -->
+  <div class="slide bg-blue banner-slide a" data-title="Part A">
+    <div class="part-label" style="color:var(--blue);">PART A</div>
+    <h2>本地 AI 代理</h2>
+    <div class="sub" style="color:#5a83b8;">openai-proxy v1.6.0 — 把 TeleAgent 变成标准 OpenAI 接口</div>
+  </div>
+
+  <!-- ====== SLIDE 3: A-1 是什么 ====== -->
+  <div class="slide bg-blue dense" data-title="A-1 代理是什么">
+    <div class="s-head">
+      <div class="idx blue">壹</div>
+      <div class="t1">是什么</div><div class="t2">一个 1800 行的 Python 代理</div>
+      <div class="line"></div>
+    </div>
+    <div class="cards two">
+      <div class="card">
+        <span class="ic">🔌</span>
+        <h4>标准 OpenAI 兼容接口</h4>
+        <p>将 TeleAgent 桌面应用的 super-agent API 转换为标准 <b>/v1/chat/completions</b> 和 <b>/v1/models</b> 端点。任何支持 OpenAI API 的工具/SDK（Cursor、ChatBox、LangChain…）<b>无需改代码即可接入</b>。</p>
+      </div>
+      <div class="card">
+        <span class="ic">⚡</span>
+        <h4>零依赖 · 纯 Python</h4>
+        <p>纯标准库实现（http.server + hmac + threading），<b>无任何 pip install</b>。线程安全、SSE 流式输出、自动签名认证，启动即用。监听 0.0.0.0:8088，局域网可访问。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 4: A-2 核心数据 ====== -->
+  <div class="slide bg-blue" data-title="A-2 核心数据">
+    <div class="s-head">
+      <div class="idx blue">贰</div>
+      <div class="t1">核心数据</div><div class="t2">持续迭代中</div>
+      <div class="line"></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="lab">代码行数</div><div class="val">1800<small>+ 行</small></div><div class="note">纯 Python 标准库</div></div>
+      <div class="kpi"><div class="lab">第三方依赖</div><div class="val">0<small> 个</small></div><div class="note">无需 pip install</div></div>
+      <div class="kpi"><div class="lab">API 端点</div><div class="val">8<small> 个</small></div><div class="note">OpenAI 兼容 + 管理接口</div></div>
+      <div class="kpi"><div class="lab">控制台页面</div><div class="val">7<small> 个</small></div><div class="note">仪表盘/模型/日志/测试/会话/说明/系统</div></div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 5: A-3 架构 ====== -->
+  <div class="slide bg-blue" data-title="A-3 工作原理">
+    <div class="s-head">
+      <div class="idx blue">叁</div>
+      <div class="t1">工作原理</div><div class="t2">客户端 → 代理 → super-agent</div>
+      <div class="line"></div>
+    </div>
+    <div class="arch">
+      <div class="row">
+        <div class="node gray">客户端 / SDK<br><span>curl / Python SDK / LangChain / ChatBox / Cursor</span></div>
+      </div>
+      <div class="flow"><span class="ln">↓</span>标准 OpenAI 格式（JSON / SSE 流式）<span class="tag2">api_key 随意填，不校验</span></div>
+      <div class="row">
+        <div class="node blue">openai-proxy (8088)<br><span>纯 Python · 线程安全 · 签名认证 · 会话管理</span></div>
+      </div>
+      <div class="flow"><span class="ln">↓</span>HMAC-SHA256 签名 + 异步 SSE 事件流<span class="tag2">自动获取 session key</span></div>
+      <div class="row">
+        <div class="node green">super-agent (4397)<br><span>TeleAgent 桌面应用 · AI 工具链 · 技能加载</span></div>
+      </div>
+      <div style="margin-top:14px; padding:14px 18px; background:#f8fbfe; border:1px solid #e0eaf6; border-radius:10px; font-size:15px; color:#55688d; line-height:1.65;">
+        <b style="color:var(--ink);">签名机制</b>：代理自动从 scheduler 进程环境变量提取 <code>SUPER_AGENT_LOCAL_SESSION_KEY</code>，用 HMAC-SHA256 + base64url 生成 4 个签名头，无需手动维护密钥。
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 6: A-4 技术要点 ====== -->
+  <div class="slide bg-blue dense" data-title="A-4 技术要点">
+    <div class="s-head">
+      <div class="idx blue">肆</div>
+      <div class="t1">技术要点</div><div class="t2">关键实现</div>
+      <div class="line"></div>
+    </div>
+    <table>
+      <tr><th class="c" style="width:22%">要点</th><th>实现说明</th></tr>
+      <tr><td class="c bl">OpenAI 兼容</td><td>标准 <b>/v1/chat/completions</b>（流式 SSE + 非流式 JSON）和 <b>/v1/models</b>，API Key 随意填写不校验</td></tr>
+      <tr><td class="c bl">自动签名</td><td>自动获取 <b>SUPER_AGENT_LOCAL_SESSION_KEY</b>，HMAC-SHA256 生成签名头，认证失败自动刷新重试</td></tr>
+      <tr><td class="c bl">会话复用</td><td>v1.6.0 新增 <b>session_title</b> 按标题复用会话，同名会话不重建，对话上下文跨请求延续</td></tr>
+      <tr><td class="c bl">默认模型切换</td><td>Web 控制台动态修改默认模型，<b>立即生效</b>，影响所有未显式指定 model 的请求</td></tr>
+      <tr><td class="c bl">模型过滤</td><td>管理面板只展示 TeleAgent 中<b>已配置成功的 Provider</b>，未配置密钥的自动隐藏；每 30 秒自动同步</td></tr>
+      <tr><td class="c bl">launchd 托管</td><td>com.lizhun.openai-proxy，KeepAlive 崩溃重启 + 开机自启，Homebrew Python 3.11 解决 TCC 权限</td></tr>
+    </table>
+  </div>
+
+  <!-- ====== SLIDE 7: A-5 接入方式 ====== -->
+  <div class="slide bg-blue" data-title="A-5 接入方式">
+    <div class="s-head">
+      <div class="idx blue">伍</div>
+      <div class="t1">接入方式</div><div class="t2">三行代码即可调用</div>
+      <div class="line"></div>
+    </div>
+    <div class="code">
+      <span class="cm"># Python OpenAI SDK 接入</span><br>
+      from openai import OpenAI<br>
+      client = OpenAI(base_url="http://127.0.0.1:8088/v1", api_key="any")  <span class="cm"># api_key 随意填</span><br>
+      resp = client.chat.completions.create(<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;model="NewApi/chat-pro",<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;messages=[{"role": "user", "content": "帮我配餐"}]<br>
+      )<br>
+      print(resp.choices[0].message.content)
+    </div>
+    <div style="margin-top:16px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;">
+      <div class="card" style="text-align:center; padding:18px;"><span class="ic">🔗</span><h4 style="font-size:17px;margin-bottom:4px;">API Base URL</h4><p style="font-size:15px;font-family:monospace;color:var(--blue);">http://127.0.0.1:8088/v1</p></div>
+      <div class="card" style="text-align:center; padding:18px;"><span class="ic">🔑</span><h4 style="font-size:17px;margin-bottom:4px;">API Key</h4><p style="font-size:15px;font-family:monospace;color:var(--blue);">any（随意填写）</p></div>
+      <div class="card" style="text-align:center; padding:18px;"><span class="ic">🤖</span><h4 style="font-size:17px;margin-bottom:4px;">推荐模型</h4><p style="font-size:15px;font-family:monospace;color:var(--blue);">NewApi/chat-pro</p></div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 8: Part B Banner ====== -->
+  <div class="slide bg-green banner-slide b" data-title="Part B">
+    <div class="part-label" style="color:var(--green);">PART B</div>
+    <h2>企微QQ量子密信三通道机器人</h2>
+    <div class="sub" style="color:#4a8a6a;">wecom-bot v1.14.0 — 让 AI 大脑接入企微、QQ 与量子密信的每一个群</div>
+  </div>
+
+  <!-- ====== SLIDE 9: B-1 是什么 ====== -->
+  <div class="slide bg-green dense" data-title="B-1 机器人是什么">
+    <div class="s-head">
+      <div class="idx green">壹</div>
+      <div class="t1">是什么</div><div class="t2">一个 AI 大脑，三端接入</div>
+      <div class="line"></div>
+    </div>
+    <div class="cards">
+      <div class="card green">
+        <span class="ic">🏢</span>
+        <h4>企业微信通道</h4>
+        <p>WebSocket 长连接接收消息，<b>无需域名、无需备案、无需回调服务器</b>。群聊 @机器人 发图/发文字，AI 自动回复，可主动推送群聊与个人。</p>
+      </div>
+      <div class="card green">
+        <span class="ic">🐧</span>
+        <h4>QQ 通道</h4>
+        <p>腾讯官方 botpy SDK 长连接，独立进程运行，<b>与企微互不干扰</b>。支持群 @ / 单聊，Markdown / 图片 / 视频 / 语音 / 文件 5 种媒体回复。</p>
+      </div>
+      <div class="card green">
+        <span class="ic">🔐</span>
+        <h4>量子密信通道</h4>
+        <p>中国电信量子密信平台，<b>Webhook 回调模式</b>（需公网入口）。支持群聊 @ 和主动推送，文本/Markdown/图片/文件 4 种消息，独立适配器 zmx_adapter.py。</p>
+      </div>
+      <div class="card green">
+        <span class="ic">🧠</span>
+        <h4>统一 AI 大脑</h4>
+        <p>三通道共用<b>本地 8088 代理</b> → TeleAgent，复用同一套河南标准化赋能技能（五步法话术、配餐、质检），能力完全一致。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 10: B-2 核心能力 ====== -->
+  <div class="slide bg-green" data-title="B-2 核心能力">
+    <div class="s-head">
+      <div class="idx green">贰</div>
+      <div class="t1">核心能力</div><div class="t2">v1.14.0 持续迭代</div>
+      <div class="line"></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi green"><div class="lab">主动推送</div><div class="val">4<small> 种</small></div><div class="note">文本/Markdown/图片/图文，群聊+个人</div></div>
+      <div class="kpi green"><div class="lab">企微后处理</div><div class="val">3<small> 件套</small></div><div class="note">写台账 + 建待办 + 生成文档</div></div>
+      <div class="kpi green"><div class="lab">QQ 媒体类型</div><div class="val">5<small> 种</small></div><div class="note">Markdown/图片/视频/语音/文件</div></div>
+      <div class="kpi green"><div class="lab">Web 面板</div><div class="val">8505</div><div class="note">三通道状态+消息记录+实时日志</div></div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 11: B-3 技术要点 ====== -->
+  <div class="slide bg-green dense" data-title="B-3 技术要点">
+    <div class="s-head">
+      <div class="idx green">叁</div>
+      <div class="t1">技术要点</div><div class="t2">关键实现细节</div>
+      <div class="line"></div>
+    </div>
+    <table>
+      <tr><th class="c" style="width:22%">要点</th><th>实现说明</th></tr>
+      <tr><td class="c gl">消息接收</td><td>企微 WebSocket 长连接（wss://openws.work.weixin.qq.com），QQ 用官方 botpy SDK；均不需要公网 IP / 域名 / 备案</td></tr>
+      <tr><td class="c gl">看图能力</td><td>企微 mixed 消息自动下载图片，<b>AES-256-CBC 解密</b>（Base64 aeskey 补齐 padding，IV=key 前 16 字节）后交给 AI</td></tr>
+      <tr><td class="c gl">企微回复</td><td>长连接<b>不支持 text 类型</b>，必须用 <b>stream 类型</b>（aibot_respond_msg + msgtype=stream）流式回复</td></tr>
+      <tr><td class="c gl">量子密信通道</td><td>Webhook 回调模式（端口 1011），量子密信平台主动 POST 到公网入口；<b>SSH 反向隧道</b>（天翼云 219.151.184.206）提供公网可达性，消息经 zmx_adapter 转发</td></tr>
+      <tr><td class="c gl">会话固定</td><td>私聊按 userid / 群按 chatid / QQ 按 openid / 密信按 phone+groupId 固定会话，<b>对话上下文自动延续</b>，群与私聊互不干扰</td></tr>
+      <tr><td class="c gl">MCP 扩展</td><td>企微文档/表格/待办走 MCP（streamableHTTP），配置缺失时自动解密本地 AES-256-GCM 加密配置兜底</td></tr>
+      <tr><td class="c gl">launchd 托管</td><td>com.lizhun.wecom-bot（企微）+ com.lizhun.qq-adapter（QQ），KeepAlive 崩溃重启 + 开机自启</td></tr>
+    </table>
+  </div>
+
+  <!-- ====== SLIDE 12: B-4 业务能力 ====== -->
+  <div class="slide bg-green dense" data-title="B-4 业务能力">
+    <div class="s-head">
+      <div class="idx green">肆</div>
+      <div class="t1">业务能力</div><div class="t2">不止聊天，更是自动化助手</div>
+      <div class="line"></div>
+    </div>
+    <div class="cards">
+      <div class="card green">
+        <span class="ic">💬</span>
+        <h4>AI 智能回复</h4>
+        <p>群内 @机器人 即可对话：<b>看图分析</b>（账单/聊天截图）、五步法话术、套餐比算、竞品应对，回复自动 Markdown 排版。</p>
+      </div>
+      <div class="card green">
+        <span class="ic">📊</span>
+        <h4>配餐台账自动记录</h4>
+        <p>AI 完成配餐方案后自动提取数据写入<b>企微在线表格台账</b>，留存可追溯，不用手动登记。</p>
+      </div>
+      <div class="card green">
+        <span class="ic">✅</span>
+        <h4>跟进待办自动创建</h4>
+        <p>每条配餐方案自动创建 <b>企微跟进待办</b>（默认 3 天后到期提醒），杜绝客户跟进遗漏。</p>
+      </div>
+      <div class="card green">
+        <span class="ic">📄</span>
+        <h4>复杂方案自动生成文档</h4>
+        <p>方案超 800 字或多级标题时自动生成<b>企微在线文档</b>发到群里，方便转发与沉淀。</p>
+      </div>
+      <div class="card green">
+        <span class="ic">🔑</span>
+        <h4>关键词快捷指令</h4>
+        <p>QQ 端支持 <b>/配餐 /质检 /日报 /话术 /帮助</b>（别名 /pc /zj /rb /hs /bz），一键唤起能力。</p>
+      </div>
+      <div class="card green">
+        <span class="ic">📣</span>
+        <h4>主动推送</h4>
+        <p>终端 / 脚本 / Web 面板均可推送：<b>群 Webhook</b>（文字/Markdown/图片/图文）+ <b>1v1 应用消息</b>。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 13: Part C Banner ====== -->
+  <div class="slide bg-orange banner-slide c" data-title="Part C">
+    <div class="part-label" style="color:var(--orange);">PART C</div>
+    <h2>河南标准化赋能工具</h2>
+    <div class="sub" style="color:#a0681e;">henan-standardized-empowerment — 河南电信营销的 AI 大脑</div>
+  </div>
+
+  <!-- ====== SLIDE 14: C-1 是什么 ====== -->
+  <div class="slide bg-orange dense" data-title="C-1 赋能工具是什么">
+    <div class="s-head">
+      <div class="idx orange">壹</div>
+      <div class="t1">是什么</div><div class="t2">河南电信标准化营销知识库 + AI 能力</div>
+      <div class="line"></div>
+    </div>
+    <div class="cards">
+      <div class="card orange">
+        <span class="ic">📋</span>
+        <h4>五步法营销话术</h4>
+        <p>外呼邀约 → 服务获信任 → 优化给方案 → 找坑给动力 → 比算促成交。<b>每步完整话术 + 异议处理 + 场景话术</b>，AI 随时调用。</p>
+      </div>
+      <div class="card orange">
+        <span class="ic">🍱</span>
+        <h4>配餐方法论</h4>
+        <p>三条铁律：<b>禁止降档配餐、溢出即提值信号、加人是路径提值是结果</b>。决策树 + 标准流程 + 4 章文档生成标准。</p>
+      </div>
+      <div class="card orange">
+        <span class="ic">📊</span>
+        <h4>套餐政策库</h4>
+        <p>双底座融合礼包 5 档（99-199 元）+ 云商宽 4 档 + 全光 WiFi + 橙分期 + 存量提值 + 单宽资费，<b>全档位速查</b>。</p>
+      </div>
+      <div class="card orange">
+        <span class="ic">📝</span>
+        <h4>比算单方法论</h4>
+        <p>7 项逐项对比格式 + 5 大技巧（边写边说 / 横比说理由 / 请求转介绍 / 降价有说法 / 优惠要申请）。</p>
+      </div>
+      <div class="card orange">
+        <span class="ic">🎯</span>
+        <h4>录音质检评分</h4>
+        <p>五步法必做动作 + 扣分规则 + 6 条红线行为 + 4 级评分等级，依赖 <b>voice-suite 语音转写</b>自动评分出报告。</p>
+      </div>
+      <div class="card orange">
+        <span class="ic">🏙️</span>
+        <h4>地市差异化配置</h4>
+        <p>已配置 <b>鹤壁/郑州/周口/商丘/新乡</b> 5 地市，岗位名/申诉流程/竞品数据/考核标准差异自动覆盖。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 15: C-2 核心数据 ====== -->
+  <div class="slide bg-orange" data-title="C-2 核心数据">
+    <div class="s-head">
+      <div class="idx orange">贰</div>
+      <div class="t1">核心数据</div><div class="t2">知识体量</div>
+      <div class="line"></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi orange"><div class="lab">主文档章节</div><div class="val">14<small> 章</small></div><div class="note">速查 + 路径指引 + 完整数据</div></div>
+      <div class="kpi orange"><div class="lab">参考文件</div><div class="val">6<small> 个</small></div><div class="note">五步法/套餐/比算/质检/培训/地市</div></div>
+      <div class="kpi orange"><div class="lab">已配置地市</div><div class="val">5<small> 个</small></div><div class="note">鹤壁/郑州/周口/商丘/新乡</div></div>
+      <div class="kpi orange"><div class="lab">套餐档位</div><div class="val">10<small> 档</small></div><div class="note">39元~299元 5G畅享全档位</div></div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 16: C-3 五步法 ====== -->
+  <div class="slide bg-orange dense" data-title="C-3 五步法">
+    <div class="s-head">
+      <div class="idx orange">叁</div>
+      <div class="t1">五步法主流程</div><div class="t2">标准化营销核心方法论</div>
+      <div class="line"></div>
+    </div>
+    <table>
+      <tr><th class="c" style="width:16%">步骤</th><th>核心动作</th><th class="c" style="width:22%">关键规则</th></tr>
+      <tr><td class="c ol">第一步<br>外呼邀约</td><td>以宽带网速不达标为由需上门检测 → 6 种异议处理 → 二选一法约时间 → 加微信改备注</td><td class="c">不说楼栋信息<br>不说"什么时候有空"</td></tr>
+      <tr><td class="c ol">第二步<br>服务获信任</td><td>服务三件事（清灰/摆设备/理线）+ 测速三目标（聊终端算带宽/聊路由/聊覆盖）</td><td class="c">每件事说理由<br>让用户感知不够用</td></tr>
+      <tr><td class="c ol">第三步<br>优化给方案</td><td>先技术方案后套餐方案 → 升级网速/FTTR 5 场景话术 → 切入查消费</td><td class="c">说技术方案不提钱<br>不算出消费不报价</td></tr>
+      <tr><td class="c ol">第四步<br>找坑给动力</td><td>查账单肩并肩笔算 → 查合约（已收费/未收费/增值）→ 反问句 2-3 个</td><td class="c">变"我们要改"<br>为"用户要改"</td></tr>
+      <tr><td class="c ol">第五步<br>比算促成交</td><td>比算单 7 项逐项填写 → 横着比说理由 → 优惠要申请 → 请求转介绍</td><td class="c">优惠不跟报价同时出<br>调测费跟报价一起出</td></tr>
+    </table>
+  </div>
+
+  <!-- ====== SLIDE 17: C-4 配餐铁律 ====== -->
+  <div class="slide bg-orange" data-title="C-4 配餐铁律">
+    <div class="s-head">
+      <div class="idx orange">肆</div>
+      <div class="t1">配餐三条铁律</div><div class="t2">方向性红线，不可违反</div>
+      <div class="line"></div>
+    </div>
+    <div class="cards">
+      <div class="card orange" style="border-left:5px solid var(--orange);">
+        <h4 style="font-size:22px;">① 禁止降档配餐</h4>
+        <p style="font-size:17px; margin-top:10px;">配餐方向只能<b>平替或升档</b>，绝不能从高档降到低档。出账高于套餐基础费 = 消费能力已达更高档位，应整合升级。</p>
+      </div>
+      <div class="card orange" style="border-left:5px solid var(--orange);">
+        <h4 style="font-size:22px;">② 溢出即提值信号</h4>
+        <p style="font-size:17px; margin-top:10px;">实际出账 > 套餐基础费 = 存在溢出（FTTR 月付/收费家庭卡/二宽/增值），溢出费用应<b>整合到更高档位融合礼包</b>。</p>
+      </div>
+      <div class="card orange" style="border-left:5px solid var(--orange);">
+        <h4 style="font-size:22px;">③ 加人是路径，提值是结果</h4>
+        <p style="font-size:17px; margin-top:10px;">先看家庭卡是否用满额度，有异网号码就拉进来加卡，加人后自然需要更高档位套餐，<b>提值水到渠成</b>。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 18: C-5 质检评分 ====== -->
+  <div class="slide bg-orange" data-title="C-5 质检评分">
+    <div class="s-head">
+      <div class="idx orange">伍</div>
+      <div class="t1">录音质检评分</div><div class="t2">AI 自动转写 + 逐项评分</div>
+      <div class="line"></div>
+    </div>
+    <div class="duo two">
+      <div class="box">
+        <h3><span class="dot" style="background:var(--orange);"></span>评分维度与权重</h3>
+        <ul>
+          <li>五步法执行完整度 <b>40%</b> — 每步必做动作是否全部执行</li>
+          <li>话术规范度 <b>25%</b> — 是否按标准话术框架沟通</li>
+          <li>用户互动质量 <b>15%</b> — 是否引导用户参与互动</li>
+          <li>红线行为 <b>20%</b> — 出现红线行为直接扣 20 分/项</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3><span class="dot" style="background:var(--orange);"></span>评分等级</h3>
+        <ul>
+          <li><b>优秀 90-100 分</b>：标杆录音，全员学习</li>
+          <li><b>合格 70-89 分</b>：正常，指出改进点</li>
+          <li><b>待提升 50-69 分</b>：主管一对一复盘</li>
+          <li><b>不合格 <50 分</b>：C 类管理，陪跑+重点帮扶</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 19: Part D Banner ====== -->
+  <div class="slide bg-purple banner-slide d" data-title="Part D">
+    <div class="part-label" style="color:var(--purple);">PART D</div>
+    <h2>三合一融合</h2>
+    <div class="sub" style="color:#7a5c9a;">三个项目如何串成一条完整链路 —— 从 AI 大脑到一线营销的闭环</div>
+  </div>
+
+  <!-- ====== SLIDE 20: D-1 融合架构 ====== -->
+  <div class="slide bg-purple dense" data-title="D-1 融合架构">
+    <div class="s-head">
+      <div class="idx purple">壹</div>
+      <div class="t1">融合架构</div><div class="t2">三个项目各司其职</div>
+      <div class="line"></div>
+    </div>
+    <div class="arch" style="padding:20px 24px;">
+      <div class="row">
+        <div class="node green" style="min-width:160px;">企微群聊 @机器人<br><span>WebSocket 长连接</span></div>
+        <div class="node green" style="min-width:160px;">QQ 群聊 @机器人<br><span>botpy SDK 长连接</span></div>
+        <div class="node green" style="min-width:160px;">量子密信群聊 @<br><span>Webhook 回调</span></div>
+      </div>
+      <div class="flow"><span class="ln">↓</span>wecom-bot 消息处理层：会话固定 · 指令分发 · 代理绕行</div>
+      <div class="row">
+        <div class="node gray">wecom-bot (8505)<br><span>企微/QQ/密信 三通道 · 消息管线 · 后处理三件套</span></div>
+      </div>
+      <div class="flow"><span class="ln">↓</span>POST /v1/chat/completions + session_title<span class="tag2">OpenAI 兼容格式</span></div>
+      <div class="row">
+        <div class="node blue" style="min-width:200px;">openai-proxy (8088)<br><span>签名认证 · 会话复用 · SSE 转流</span></div>
+      </div>
+      <div class="flow"><span class="ln">↓</span>HMAC-SHA256 签名 + 异步 SSE 事件流</div>
+      <div class="row">
+        <div class="node purple" style="min-width:200px;">TeleAgent super-agent<br><span>AI 大脑 · 看图 · 工具链</span></div>
+      </div>
+      <div class="flow"><span class="ln">↓</span>自动加载河南标准化赋能技能</div>
+      <div class="row">
+        <div class="node orange" style="min-width:240px;">河南标准化赋能技能<br><span>五步法 · 配餐 · 比算 · 质检 · 套餐政策库</span></div>
+      </div>
+      <div class="flow"><span class="ln">↓</span>AI 回复 + 后处理三件套</div>
+      <div class="row">
+        <div class="node green">企微群聊回复<br><span>stream 流式</span></div>
+        <div class="node green">QQ 消息回复<br><span>post_message API</span></div>
+        <div class="node green">密信消息回复<br><span>Webhook 回调 URL</span></div>
+        <div class="node orange">配餐台账 + 待办 + 文档<br><span>MCP 自动执行</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 21: D-2 三者关系 ====== -->
+  <div class="slide bg-purple" data-title="D-2 三者关系">
+    <div class="s-head">
+      <div class="idx purple">贰</div>
+      <div class="t1">三者关系</div><div class="t2">各管一层，缺一不可</div>
+      <div class="line"></div>
+    </div>
+    <div class="duo">
+      <div class="box" style="border-top:5px solid var(--blue);">
+        <h3><span class="dot" style="background:var(--blue);"></span>openai-proxy · 神经层</h3>
+        <ul>
+          <li><b>角色</b>：AI 能力网关，标准接口</li>
+          <li><b>管什么</b>：协议转换、签名认证、会话管理、模型切换</li>
+          <li><b>没有它</b>：外部工具无法接入 TeleAgent，机器人也调不了 AI</li>
+          <li><b>一句话</b>：<span class="v">把 TeleAgent 变成标准 OpenAI 接口</span></li>
+        </ul>
+      </div>
+      <div class="box" style="border-top:5px solid var(--green);">
+        <h3><span class="dot" style="background:var(--green);"></span>wecom-bot · 触达层</h3>
+        <ul>
+          <li><b>角色</b>：消息通道，最后一公里</li>
+        <li><b>管什么</b>：企微/QQ/密信 消息收发、会话固定、主动推送、后处理</li>
+        <li><b>没有它</b>：AI 能力再强也只能在本地跑，触达不了一线</li>
+        <li><b>一句话</b>：<span class="v">让 AI 接入企微、QQ 和量子密信的每一个群</span></li>
+        </ul>
+      </div>
+      <div class="box" style="border-top:5px solid var(--orange);">
+        <h3><span class="dot" style="background:var(--orange);"></span>河南标准化赋能 · 业务大脑</h3>
+        <ul>
+          <li><b>角色</b>：业务知识库，营销方法论</li>
+          <li><b>管什么</b>：五步法话术、配餐规则、套餐政策、质检评分</li>
+          <li><b>没有它</b>：机器人只会聊天，不懂电信业务，给不了专业方案</li>
+          <li><b>一句话</b>：<span class="v">装上河南电信营销的大脑</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 22: D-3 实战场景 ====== -->
+  <div class="slide bg-purple dense" data-title="D-3 实战场景">
+    <div class="s-head">
+      <div class="idx purple">叁</div>
+      <div class="t1">实战场景</div><div class="t2">三合一后的完整闭环</div>
+      <div class="line"></div>
+    </div>
+    <div class="scenes">
+      <div class="scene">
+        <h4><span class="no">1</span>营业厅群智能配餐（全链路）</h4>
+        <p>客户在企微群发账单截图 @机器人 → <b>看图识别套餐与消费</b> → 按配餐铁律给出提值方案 → 自动写台账 + 建待办 → 群里通知含链接。</p>
+        <div class="chain"><b>群聊 @</b> <span class="arrow">→</span> wecom-bot 接收图片 <span class="arrow">→</span> 8088 代理转发 <span class="arrow">→</span> TeleAgent 看图 + 加载标准化技能 <span class="arrow">→</span> 配餐方案 + 台账 + 待办</div>
+      </div>
+      <div class="scene">
+        <h4><span class="no">2</span>五步法话术即问即答</h4>
+        <p>营销人员在 QQ 群 @机器人 提问：<b>"用户说没时间怎么回""FTTR 怎么推""比算单怎么填"</b>，AI 基于五步法话术库即时回复。</p>
+        <div class="chain"><b>QQ @</b> <span class="arrow">→</span> botpy 接收 <span class="arrow">→</span> 8088 代理 <span class="arrow">→</span> 加载 marketing-five-steps.md <span class="arrow">→</span> 返回对应话术</div>
+      </div>
+      <div class="scene">
+        <h4><span class="no">3</span>录音质检自动评分</h4>
+        <p>上传营销录音 → <b>voice-suite 语音转写</b> → 按五步法逐项评分 → 红线行为检测 → 生成质检报告（Word + PDF）。</p>
+        <div class="chain"><b>录音上传</b> <span class="arrow">→</span> ASR 转写 <span class="arrow">→</span> 加载 recording-qa.md 评分标准 <span class="arrow">→</span> 逐项打分 + 报告生成</div>
+      </div>
+      <div class="scene">
+        <h4><span class="no">4</span>日报通报自动推送</h4>
+        <p>定时任务调用 <b>push.py</b>：收入日报、质检通报、AI 新闻等自动推送到企微群 / QQ 群，无需人工复制粘贴。</p>
+        <div class="chain"><b>定时脚本</b> <span class="arrow">→</span> push.py <span class="arrow">→</span> 企微 Webhook / QQ post_message <span class="arrow">→</span> 群聊收到通报</div>
+      </div>
+      <div class="scene">
+        <h4><span class="no">5</span>Cursor / ChatBox 接入 AI</h4>
+        <p>开发时用 <b>Cursor / ChatBox / LangChain</b> 直接连 8088 代理，复用 TeleAgent 的模型与标准化技能，写代码、查套餐、做分析一站搞定。</p>
+        <div class="chain"><b>Cursor / SDK</b> <span class="arrow">→</span> http://127.0.0.1:8088/v1 <span class="arrow">→</span> 代理签名转发 <span class="arrow">→</span> TeleAgent AI 回复</div>
+      </div>
+      <div class="scene">
+        <h4><span class="no">6</span>分地市差异化配餐</h4>
+        <p>群里说 <b>"郑州的客户月消 180 帮我配餐"</b> → 自动加载郑州配置（岗位名/竞品数据/申诉流程）→ 按郑州差异化数据出方案。</p>
+        <div class="chain"><b>"郑州+配餐"</b> <span class="arrow">→</span> 加载 zhengzhou.md <span class="arrow">→</span> 覆盖通用数据 <span class="arrow">→</span> 分地市配餐方案</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 23: D-4 日常运维 ====== -->
+  <div class="slide bg-purple dense" data-title="D-4 日常运维">
+    <div class="s-head">
+      <div class="idx purple">肆</div>
+      <div class="t1">日常运维全景</div><div class="t2">三个端口 · 三条链路 · 一套体系</div>
+      <div class="line"></div>
+    </div>
+    <table>
+      <tr><th class="c" style="width:18%">组件</th><th class="c" style="width:12%">端口</th><th>角色</th><th class="c" style="width:22%">launchd 服务</th></tr>
+      <tr><td class="c bl">openai-proxy</td><td class="c"><b>8088</b></td><td>AI 能力网关：OpenAI 兼容接口 + 签名 + 会话管理 + 控制台</td><td class="c">com.lizhun.openai-proxy</td></tr>
+      <tr><td class="c gl">wecom-bot</td><td class="c"><b>8505</b></td><td>企微通道：消息接收/回复 + 主动推送 + 配餐后处理 + 三通道管理面板</td><td class="c">com.lizhun.wecom-bot</td></tr>
+      <tr><td class="c gl">qq-adapter</td><td class="c"><b>18506</b></td><td>QQ 通道：官方 botpy 接收/回复 + 内部推送端点（仅回环）</td><td class="c">com.lizhun.qq-adapter</td></tr>
+      <tr><td class="c gl">zmx-adapter</td><td class="c"><b>1011</b></td><td>量子密信通道：Webhook 回调接收 + 文本/Markdown/图片/文件推送 + SSH 反向隧道公网入口</td><td class="c">wecom-bot 进程内</td></tr>
+      <tr><td class="c ol">标准化技能</td><td class="c">—</td><td>业务大脑：五步法话术 + 配餐 + 比算 + 质检 + 套餐政策库 + 地市配置</td><td class="c">TeleAgent 内置</td></tr>
+    </table>
+    <div style="height:14px"></div>
+    <div class="duo two">
+      <div class="box">
+        <h3><span class="dot" style="background:var(--blue);"></span>AI 侧管理（8088 控制台）</h3>
+        <ul>
+          <li>仪表盘：请求数 / Token / 错误率 / 运行时长</li>
+          <li>模型管理：查看已配置模型，切换默认模型</li>
+          <li>请求日志：最近 200 条调用记录</li>
+          <li>在线测试：页面直接发请求验证</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3><span class="dot" style="background:var(--green);"></span>通道侧管理（8505 面板）</h3>
+        <ul>
+          <li>三通道状态：企微连接 + QQ 连接 + 密信连接</li>
+          <li>消息记录：来源标签 + 历史回填</li>
+          <li>主动推送：企微群/个人 + QQ 群/私聊</li>
+          <li>实时日志：双通道日志合并刷新</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 24: D-5 版本演进 ====== -->
+  <div class="slide bg-purple" data-title="D-5 版本演进">
+    <div class="s-head">
+      <div class="idx purple">伍</div>
+      <div class="t1">三个项目版本</div><div class="t2">持续迭代中</div>
+      <div class="line"></div>
+    </div>
+    <div class="duo">
+      <div class="box">
+        <h3><span class="dot" style="background:var(--blue);"></span>openai-proxy v1.6.0</h3>
+        <ul>
+          <li>v1.0：基础代理 + Web 控制台</li>
+          <li>v1.4：支持 session_title 自定义会话</li>
+          <li>v1.5：动态默认模型管理 + 自动同步</li>
+          <li>v1.6：会话按标题复用，上下文延续</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3><span class="dot" style="background:var(--green);"></span>wecom-bot v1.14.0</h3>
+        <ul>
+          <li>v1.0：群聊收图 + AI 配餐全流程</li>
+          <li>v1.4：QQ 官方机器人接入</li>
+          <li>v1.6：QQ 六大能力（MD/视频/语音/@/指令/事件）</li>
+          <li>v1.9：会话固定 + 技能脱敏注册为 TeleAgent 技能</li>
+          <li>v1.10：量子密信通道接入（Webhook 回调 + SSH 反向隧道）</li>
+          <li>v1.11：面板三通道管理 + 推送格式控制</li>
+          <li>v1.12：重构为企微QQ量子密信三通道机器人技能，README 全面重写</li>
+          <li>v1.13：量子密信 DCOOS 平台模式（7 种消息类型 + 加密验签 + 多群推送）</li>
+          <li>v1.14：量子密信 webhook 模式解除限制，图片/文件推送全通</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3><span class="dot" style="background:var(--orange);"></span>河南标准化赋能</h3>
+        <ul>
+          <li>五步法完整话术 + 6 种异议处理</li>
+          <li>配餐三条铁律 + 决策树 + 4 章文档标准</li>
+          <li>双底座 5 档 + 云商宽 4 档 + 全档位资费</li>
+          <li>5 地市差异化配置，12 地市待补充</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== SLIDE 25: End ====== -->
+  <div class="slide bg-dark" data-title="结束">
+    <div class="end-content">
+      <h2>谢谢观看</h2>
+      <p>三个项目 · 一套体系 · 全链路闭环<br>从 AI 大脑到一线营销，让技术真正服务于业务</p>
+      <div class="brand">李准的星小辰 · 2026-08-22</div>
+      <p style="margin-top:24px; font-size:16px; color:#6080a8;">
+        openai-proxy (GitHub: lizhun781021/teleagent-openai-proxy) v1.6.0<br>
+        wecom-bot (GitHub: lizhun781021/wecom-bot) v1.14.0<br>
+        河南标准化赋能工具（TeleAgent 内置技能）
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<!-- ====== Navigation Bar ====== -->
+<div id="nav">
+  <div class="left">
+    <button id="prevBtn" title="上一页 (←)">‹</button>
+    <button id="nextBtn" title="下一页 (→)">›</button>
+    <button id="firstBtn" title="首页">⏮</button>
+    <button id="lastBtn" title="末页">⏭</button>
+  </div>
+  <div class="progress">
+    <div class="progress-bar" id="progressBar" style="width:4%"></div>
+  </div>
+  <div class="counter" id="counter">1 / 25</div>
+  <div class="title-display" id="titleDisplay">封面</div>
+  <div class="right">
+    <button class="fullscreen-btn" id="fsBtn" title="全屏演示 (F)">⛶ 全屏</button>
+  </div>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const firstBtn = document.getElementById('firstBtn');
+  const lastBtn = document.getElementById('lastBtn');
+  const counter = document.getElementById('counter');
+  const progressBar = document.getElementById('progressBar');
+  const titleDisplay = document.getElementById('titleDisplay');
+  const fsBtn = document.getElementById('fsBtn');
+
+  function showSlide(idx) {
+    if (idx < 0 || idx >= total) return;
+    slides.forEach((s, i) => {
+      s.classList.remove('active', 'prev');
+      if (i === idx) s.classList.add('active');
+      else if (i < idx) s.classList.add('prev');
+    });
+    current = idx;
+    counter.textContent = `${idx + 1} / ${total}`;
+    progressBar.style.width = `${((idx + 1) / total) * 100}%`;
+    titleDisplay.textContent = slides[idx].dataset.title || '';
+    prevBtn.disabled = idx === 0;
+    nextBtn.disabled = idx === total - 1;
+  }
+
+  function next() { if (current < total - 1) showSlide(current + 1); }
+  function prev() { if (current > 0) showSlide(current - 1); }
+
+  prevBtn.addEventListener('click', prev);
+  nextBtn.addEventListener('click', next);
+  firstBtn.addEventListener('click', () => showSlide(0));
+  lastBtn.addEventListener('click', () => showSlide(total - 1));
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); next(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') { e.preventDefault(); showSlide(0); }
+    else if (e.key === 'End') { e.preventDefault(); showSlide(total - 1); }
+    else if (e.key === 'f' || e.key === 'F') { toggleFullscreen(); }
+  });
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+      fsBtn.textContent = '⛶ 退出';
+    } else {
+      document.exitFullscreen().catch(() => {});
+      fsBtn.textContent = '⛶ 全屏';
+    }
+  }
+  fsBtn.addEventListener('click', toggleFullscreen);
+
+  document.addEventListener('fullscreenchange', () => {
+    fsBtn.textContent = document.fullscreenElement ? '⛶ 退出' : '⛶ 全屏';
+  });
+
+  // Touch swipe support
+  let touchStartX = 0;
+  document.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; });
+  document.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 50) { dx < 0 ? next() : prev(); }
+  });
+
+  // Init
+  showSlide(0);
+</script>
+
+</body>
+</html>
