@@ -3,16 +3,26 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'af65fab9-0deb-423e-9228-aa96f676ba9d'
-  PropagateID: 'af65fab9-0deb-423e-9228-aa96f676ba9d'
-  ReservedCode1: '3e54bad2-f4c7-4cc6-84fc-5b9314bca07d'
-  ReservedCode2: '3e54bad2-f4c7-4cc6-84fc-5b9314bca07d'
+  ProduceID: '59ff4787-a94e-4dd5-9f53-2dd465a2c0ba'
+  PropagateID: '59ff4787-a94e-4dd5-9f53-2dd465a2c0ba'
+  ReservedCode1: '090659ac-233a-463b-ba5f-2d75d8c10218'
+  ReservedCode2: '090659ac-233a-463b-ba5f-2d75d8c10218'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.6.1] - 2026-08-29
+
+### 修复
+
+- **StreamingSSEListener 缺少权限确认事件处理（严重 Bug）**
+  - `StreamingSSEListener._handle_event` 覆写父类时遗漏了 `permission.asked` 和 `question.asked` 事件分支
+  - 导致流式请求中 AI 弹出权限确认/问题确认时，`on_confirmation` 回调永远不会被调用
+  - 确认信号无法注入 SSE 流 → 机器人侧（企微/QQ/量子密信）收不到 confirmation chunk → 用户在聊天里永远看不到"请回复确认/拒绝"通知
+  - 修复：在 `_handle_event` 中补上 `permission.asked` 和 `question.asked` 的完整处理逻辑（与父类 `SSEListener` 一致）
 
 ## [1.6.0] - 2026-08-19
 

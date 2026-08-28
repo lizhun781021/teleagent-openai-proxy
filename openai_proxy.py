@@ -81,6 +81,12 @@ _default_model_lock = threading.Lock()  # 保护默认模型切换
 # ============================================================
 PROXY_START_TIME = time.time()
 
+# 待确认请求注册表（permissionID/questionID -> 描述信息）
+# 供机器人侧通过 /api/permission/reply 接口完成确认/拒绝
+_pending_confirmations = {}      # id -> {type, session_id, title, description, tool, time}
+_pending_confirmations_lock = threading.Lock()
+_PENDING_CONFIRM_TTL = 1800      # 30分钟未处理自动清理
+
 # 请求日志（环形缓冲，保留最近 200 条）
 _request_log = []
 _request_log_lock = threading.Lock()
@@ -445,6 +451,74 @@ def get_messages(session_id):
     return []
 
 
+# ============================================================
+# 权限/问题确认回复（机器人侧"群里确认/拒绝"）
+# ============================================================
+def register_pending_confirmation(conf_id, conf_type, session_id, description="", tool=""):
+    """登记一个待确认请求（permission.asked / question.asked 事件触发）"""
+    with _pending_confirmations_lock:
+        _pending_confirmations[conf_id] = {
+            "type": conf_type,          # "permission" | "question"
+            "session_id": session_id,
+            "title": "",                # 由外层补充
+            "description": description,
+            "tool": tool,
+            "time": time.time(),
+        }
+
+
+def get_pending_confirmation(conf_id):
+    """查询待确认请求信息"""
+    with _pending_confirmations_lock:
+        return _pending_confirmations.get(conf_id)
+
+
+def list_pending_confirmations():
+    """列出所有待确认请求（供控制台/调试）"""
+    with _pending_confirmations_lock:
+        return dict(_pending_confirmations)
+
+
+def _prune_pending_confirmations():
+    """清理超时未处理的待确认请求"""
+    now = time.time()
+    with _pending_confirmations_lock:
+        expired = [k for k, v in _pending_confirmations.items()
+                   if now - v.get("time", 0) > _PENDING_CONFIRM_TTL]
+        for k in expired:
+            _pending_confirmations.pop(k, None)
+
+
+def reply_permission(permission_id, reply):
+    """回复权限确认：reply 取值 once / always / reject"""
+    if reply not in ("once", "always", "reject"):
+        return False, "reply must be 'once', 'always' or 'reject'"
+    status, resp, _ = sa_request(
+        "POST", f"/permission/{permission_id}/reply",
+        body={"reply": reply}, timeout=10
+    )
+    if status in (200, 204):
+        with _pending_confirmations_lock:
+            _pending_confirmations.pop(permission_id, None)
+        return True, resp
+    return False, f"HTTP {status}: {resp[:200]}"
+
+
+def reply_question(question_id, answers):
+    """回复问题：answers 为答案字符串列表（单选/多选）"""
+    if not isinstance(answers, list) or not answers:
+        return False, "answers must be a non-empty list"
+    status, resp, _ = sa_request(
+        "POST", f"/question/{question_id}/reply",
+        body={"answers": answers}, timeout=10
+    )
+    if status in (200, 204):
+        with _pending_confirmations_lock:
+            _pending_confirmations.pop(question_id, None)
+        return True, resp
+    return False, f"HTTP {status}: {resp[:200]}"
+
+
 def extract_assistant_text(messages):
     """从消息列表中提取最终的助手回复文本"""
     for msg in reversed(messages):
@@ -488,6 +562,9 @@ class SSEListener:
         self._assistant_text_part_ids = set()
         self._user_msg_ids = set()
         self._current_text_part_id = None
+        # 待确认请求（permission.asked / question.asked 事件）
+        self.on_confirmation = None   # 回调：conf_id, conf_type, description, tool
+        self.pending_confirmations = []  # 本监听器收集到的待确认请求
 
     def _make_request(self, path):
         headers = sign_request("GET", path)
@@ -629,6 +706,39 @@ class SSEListener:
             if status.get("type") == "idle":
                 self.completed = True
 
+        elif etype == "permission.asked":
+            # AI 需要用户授权（访问外部目录、执行命令等）
+            permission_id = props.get("permissionID") or ""
+            desc = props.get("description") or props.get("prompt") or ""
+            tool = props.get("toolID") or props.get("tool") or ""
+            action = props.get("action") or ""
+            if permission_id:
+                if not desc and action:
+                    desc = action
+                self.pending_confirmations.append({
+                    "id": permission_id, "type": "permission",
+                    "description": desc, "tool": tool,
+                })
+                register_pending_confirmation(permission_id, "permission",
+                                              self.session_id, desc, tool)
+                if self.on_confirmation:
+                    self.on_confirmation(permission_id, "permission", desc, tool)
+
+        elif etype == "question.asked":
+            # AI 向用户提问（需要选择答案）
+            question_id = props.get("questionID") or ""
+            desc = props.get("description") or props.get("prompt") or ""
+            tool = props.get("toolID") or props.get("tool") or ""
+            if question_id:
+                self.pending_confirmations.append({
+                    "id": question_id, "type": "question",
+                    "description": desc, "tool": tool,
+                })
+                register_pending_confirmation(question_id, "question",
+                                              self.session_id, desc, tool)
+                if self.on_confirmation:
+                    self.on_confirmation(question_id, "question", desc, tool)
+
     def get_full_text(self):
         """获取完整的回复文本"""
         if self.text_chunks:
@@ -719,6 +829,39 @@ class StreamingSSEListener(SSEListener):
                 self.completed = True
                 self.on_complete()
 
+        elif etype == "permission.asked":
+            # AI 需要用户授权（访问外部目录、执行命令等）
+            permission_id = props.get("permissionID") or ""
+            desc = props.get("description") or props.get("prompt") or ""
+            tool = props.get("toolID") or props.get("tool") or ""
+            action = props.get("action") or ""
+            if permission_id:
+                if not desc and action:
+                    desc = action
+                self.pending_confirmations.append({
+                    "id": permission_id, "type": "permission",
+                    "description": desc, "tool": tool,
+                })
+                register_pending_confirmation(permission_id, "permission",
+                                              self.session_id, desc, tool)
+                if self.on_confirmation:
+                    self.on_confirmation(permission_id, "permission", desc, tool)
+
+        elif etype == "question.asked":
+            # AI 向用户提问（需要选择答案）
+            question_id = props.get("questionID") or ""
+            desc = props.get("description") or props.get("prompt") or ""
+            tool = props.get("toolID") or props.get("tool") or ""
+            if question_id:
+                self.pending_confirmations.append({
+                    "id": question_id, "type": "question",
+                    "description": desc, "tool": tool,
+                })
+                register_pending_confirmation(question_id, "question",
+                                              self.session_id, desc, tool)
+                if self.on_confirmation:
+                    self.on_confirmation(question_id, "question", desc, tool)
+
 
 # ============================================================
 # OpenAI 兼容 HTTP 服务器
@@ -777,6 +920,10 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             self._handle_api_stats()
         elif path == "/api/default-model":
             self._handle_api_default_model()
+        elif path == "/api/permission/reply":
+            self._handle_permission_reply()
+        elif path == "/api/permission/pending":
+            self._handle_permission_pending()
         else:
             self._send_json(404, {"error": {"message": "Not found", "type": "invalid_request"}})
 
@@ -784,10 +931,14 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/v1/chat/completions":
             self._handle_chat_completions()
+        elif path == "/v1/embeddings":
+            self._handle_embeddings()
         elif path == "/api/test":
             self._handle_api_test()
         elif path == "/api/default-model":
             self._handle_api_default_model()
+        elif path == "/api/permission/reply":
+            self._handle_permission_reply()
         else:
             self._send_json(404, {"error": {"message": "Not found", "type": "invalid_request"}})
 
@@ -958,6 +1109,79 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             "tokens": listener.tokens, "duration_ms": duration, "error": listener.error,
         })
 
+    # ======== 权限/问题确认 API（机器人侧"群里确认/拒绝"） ========
+
+    def _handle_permission_pending(self):
+        """GET /api/permission/pending — 列出当前所有待确认请求"""
+        _prune_pending_confirmations()
+        pending = list_pending_confirmations()
+        result = []
+        for conf_id, info in pending.items():
+            result.append({
+                "id": conf_id,
+                "type": info.get("type", ""),
+                "session_id": info.get("session_id", ""),
+                "description": info.get("description", ""),
+                "tool": info.get("tool", ""),
+                "time": info.get("time", 0),
+            })
+        self._send_json(200, {"pending": result, "count": len(result)})
+
+    def _handle_permission_reply(self):
+        """POST /api/permission/reply — 机器人转发用户的确认/拒绝
+
+        Body:
+          {
+            "id": "per_xxxx",           # 权限ID 或 问题ID
+            "reply": "once",             # 权限: once|always|reject
+            "answers": ["选项1"],         # 问题: 答案列表（可选）
+            "text": "用户附加反馈"         # 可选
+          }
+        """
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            req_data = json.loads(body)
+        except Exception as e:
+            self._send_json(400, {"error": f"Invalid JSON: {e}"})
+            return
+
+        conf_id = req_data.get("id", "").strip()
+        if not conf_id:
+            self._send_json(400, {"error": "id is required (permissionID or questionID)"})
+            return
+
+        # 查询待确认类型
+        conf_info = get_pending_confirmation(conf_id)
+        conf_type = conf_info.get("type") if conf_info else None
+
+        # 若注册表中没有，根据 ID 前缀推断
+        if not conf_type:
+            if conf_id.startswith("per_"):
+                conf_type = "permission"
+            elif conf_id.startswith("que_"):
+                conf_type = "question"
+            else:
+                self._send_json(404, {"error": f"No pending confirmation for id: {conf_id}"})
+                return
+
+        if conf_type == "permission":
+            reply = req_data.get("reply", "reject")
+            ok, detail = reply_permission(conf_id, reply)
+            if ok:
+                self._send_json(200, {"success": True, "id": conf_id, "reply": reply})
+            else:
+                self._send_json(500, {"error": detail})
+        elif conf_type == "question":
+            answers = req_data.get("answers") or [req_data.get("reply", "")]
+            ok, detail = reply_question(conf_id, answers)
+            if ok:
+                self._send_json(200, {"success": True, "id": conf_id, "answers": answers})
+            else:
+                self._send_json(500, {"error": detail})
+        else:
+            self._send_json(400, {"error": f"Unknown confirmation type: {conf_type}"})
+
     def _serve_console(self):
         html = CONSOLE_HTML
         body = html.encode()
@@ -1002,6 +1226,74 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             ]
 
         self._send_json(200, {"object": "list", "data": models})
+
+    def _handle_embeddings(self):
+        """处理 embedding 请求 - 转发到 Ollama OpenAI 兼容 API"""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            req_data = json.loads(body)
+        except Exception as e:
+            self._send_json(400, {"error": {"message": f"Invalid JSON: {e}", "type": "invalid_request"}})
+            return
+
+        model = req_data.get("model", "")
+        input_text = req_data.get("input", "")
+
+        if not model:
+            self._send_json(400, {"error": {"message": "model is required", "type": "invalid_request"}})
+            return
+        if not input_text:
+            self._send_json(400, {"error": {"message": "input is required", "type": "invalid_request"}})
+            return
+
+        # Parse provider/model
+        if "/" in model:
+            provider_id, model_id = model.split("/", 1)
+        else:
+            provider_id, model_id = "", model
+
+        # Route to appropriate backend
+        if provider_id == "ollama-local":
+            # Forward to Ollama OpenAI-compatible endpoint
+            ollama_url = "http://127.0.0.1:11434/v1/embeddings"
+            # Ollama expects model name without provider prefix
+            ollama_model = model_id
+            # Normalize: remove :latest suffix if present for ollama API
+            ollama_req = {"model": ollama_model, "input": input_text}
+            try:
+                req_body = json.dumps(ollama_req).encode("utf-8")
+                req = urllib.request.Request(ollama_url, data=req_body, method="POST")
+                req.add_header("Content-Type", "application/json")
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    resp_data = json.loads(resp.read())
+                    self._send_json(200, resp_data)
+                    return
+            except urllib.error.HTTPError as e:
+                error_body = e.read().decode("utf-8", errors="replace")
+                self._send_json(e.code, {"error": {"message": f"Ollama error: {error_body}", "type": "upstream_error"}})
+                return
+            except Exception as e:
+                self._send_json(500, {"error": {"message": f"Ollama request failed: {e}", "type": "server_error"}})
+                return
+        elif provider_id == "qwen36-local":
+            # Forward to vLLM embedding service
+            vllm_url = "http://106.0.4.142:51211/v1/embeddings"
+            vllm_model = model_id
+            vllm_req = {"model": vllm_model, "input": input_text}
+            try:
+                req_body = json.dumps(vllm_req).encode("utf-8")
+                req = urllib.request.Request(vllm_url, data=req_body, method="POST")
+                req.add_header("Content-Type", "application/json")
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    resp_data = json.loads(resp.read())
+                    self._send_json(200, resp_data)
+                    return
+            except Exception as e:
+                self._send_json(500, {"error": {"message": f"vLLM embedding failed: {e}", "type": "server_error"}})
+                return
+        else:
+            self._send_json(404, {"error": {"message": f"Embedding not supported for provider: {provider_id}", "type": "invalid_request"}})
 
     def _handle_chat_completions(self):
         """处理聊天补全请求"""
@@ -1175,10 +1467,27 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
             update_stats(model=model_name, streaming=True, error=True)
 
+        # 权限/问题确认事件：以特殊 chunk 推给调用方（机器人据此提醒用户在群里确认）
+        def send_confirmation(conf_id, conf_type, desc, tool):
+            conf_chunk = {
+                "id": request_id, "object": "chat.completion.chunk",
+                "created": created, "model": model_name,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": None}],
+                "confirmation": {
+                    "id": conf_id,
+                    "type": conf_type,   # "permission" | "question"
+                    "description": desc,
+                    "tool": tool,
+                    "session_id": session_id,
+                },
+            }
+            self._send_sse_chunk(conf_chunk)
+
         listener = StreamingSSEListener(
             session_id, on_delta=send_delta, on_complete=send_complete,
             on_error=send_error, timeout=600
         )
+        listener.on_confirmation = lambda cid, ctype, desc, tool: send_confirmation(cid, ctype, desc, tool)
         sse_thread = threading.Thread(target=listener.listen)
         sse_thread.daemon = True
         sse_thread.start()
@@ -1198,9 +1507,13 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                                       provider_id, model_id, log_entry, start_time):
         """非流式响应（带日志）"""
         model_name = f"{provider_id}/{model_id}"
+        confirmations = []
         listener = StreamingSSEListener(
             session_id, on_delta=lambda t: None, on_complete=lambda: None,
             on_error=lambda e: None, timeout=600
+        )
+        listener.on_confirmation = lambda cid, ctype, desc, tool: confirmations.append(
+            {"id": cid, "type": ctype, "description": desc, "tool": tool, "session_id": session_id}
         )
         sse_thread = threading.Thread(target=listener.listen)
         sse_thread.daemon = True
@@ -1221,6 +1534,23 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         text = listener.get_full_text()
         error = listener.error
         tokens = listener.tokens
+
+        # 若期间出现了待确认请求（权限/问题），说明会话在等待用户确认，不算超时错误
+        if confirmations:
+            conf = confirmations[0]
+            self._send_json(200, {
+                "id": request_id, "object": "chat.completion",
+                "created": created, "model": model_name,
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": text or ""},
+                             "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "confirmation": conf,
+            })
+            log_entry["status"] = "waiting_confirmation"
+            log_entry["error"] = f"等待用户确认: {conf.get('description', '')[:80]}"
+            log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
+            update_stats(model=model_name, streaming=False)
+            return
 
         if error:
             err_msg = error.get("message", str(error)) if isinstance(error, dict) else str(error)
