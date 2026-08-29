@@ -297,7 +297,7 @@
   <div class="slide bg-blue banner-slide a" data-title="Part A">
     <div class="part-label" style="color:var(--blue);">PART A</div>
     <h2>本地 AI 代理</h2>
-    <div class="sub" style="color:#5a83b8;">openai-proxy v1.6.0 — 把 TeleAgent 变成标准 OpenAI 接口</div>
+    <div class="sub" style="color:#5a83b8;">openai-proxy v1.7.0 — 把 TeleAgent 变成标准 OpenAI 接口</div>
   </div>
 
   <!-- ====== SLIDE 3: A-1 是什么 ====== -->
@@ -372,7 +372,7 @@
       <tr><th class="c" style="width:22%">要点</th><th>实现说明</th></tr>
       <tr><td class="c bl">OpenAI 兼容</td><td>标准 <b>/v1/chat/completions</b>（流式 SSE + 非流式 JSON）和 <b>/v1/models</b>，API Key 随意填写不校验</td></tr>
       <tr><td class="c bl">自动签名</td><td>自动获取 <b>SUPER_AGENT_LOCAL_SESSION_KEY</b>，HMAC-SHA256 生成签名头，认证失败自动刷新重试</td></tr>
-      <tr><td class="c bl">会话复用</td><td>v1.6.0 新增 <b>session_title</b> 按标题复用会话，同名会话不重建，对话上下文跨请求延续</td></tr>
+      <tr><td class="c bl">会话复用</td><td>v1.6.0 新增 <b>session_title</b> 按标题复用会话；v1.7.0 常驻全局确认监听器支持<b>多轮权限确认</b>（AI 确认后继续执行的新确认也能推送）</td></tr>
       <tr><td class="c bl">默认模型切换</td><td>Web 控制台动态修改默认模型，<b>立即生效</b>，影响所有未显式指定 model 的请求</td></tr>
       <tr><td class="c bl">模型过滤</td><td>管理面板只展示 TeleAgent 中<b>已配置成功的 Provider</b>，未配置密钥的自动隐藏；每 30 秒自动同步</td></tr>
       <tr><td class="c bl">launchd 托管</td><td>com.lizhun.openai-proxy，KeepAlive 崩溃重启 + 开机自启，Homebrew Python 3.11 解决 TCC 权限</td></tr>
@@ -407,7 +407,7 @@
   <div class="slide bg-green banner-slide b" data-title="Part B">
     <div class="part-label" style="color:var(--green);">PART B</div>
     <h2>企微QQ量子密信三通道机器人</h2>
-    <div class="sub" style="color:#4a8a6a;">wecom-bot v1.14.0 — 让 AI 大脑接入企微、QQ 与量子密信的每一个群</div>
+    <div class="sub" style="color:#4a8a6a;">wecom-bot v1.17.0 — 让 AI 大脑接入企微、QQ 与量子密信的每一个群</div>
   </div>
 
   <!-- ====== SLIDE 9: B-1 是什么 ====== -->
@@ -445,7 +445,7 @@
   <div class="slide bg-green" data-title="B-2 核心能力">
     <div class="s-head">
       <div class="idx green">贰</div>
-      <div class="t1">核心能力</div><div class="t2">v1.14.0 持续迭代</div>
+      <div class="t1">核心能力</div><div class="t2">v1.17.0 持续迭代</div>
       <div class="line"></div>
     </div>
     <div class="kpis">
@@ -820,16 +820,17 @@
     </div>
     <div class="duo">
       <div class="box">
-        <h3><span class="dot" style="background:var(--blue);"></span>openai-proxy v1.6.0</h3>
+        <h3><span class="dot" style="background:var(--blue);"></span>openai-proxy v1.7.0</h3>
         <ul>
           <li>v1.0：基础代理 + Web 控制台</li>
           <li>v1.4：支持 session_title 自定义会话</li>
           <li>v1.5：动态默认模型管理 + 自动同步</li>
           <li>v1.6：会话按标题复用，上下文延续</li>
+          <li>v1.7：常驻全局确认监听器，多轮权限确认全捕获</li>
         </ul>
       </div>
       <div class="box">
-        <h3><span class="dot" style="background:var(--green);"></span>wecom-bot v1.14.0</h3>
+        <h3><span class="dot" style="background:var(--green);"></span>wecom-bot v1.17.0</h3>
         <ul>
           <li>v1.0：群聊收图 + AI 配餐全流程</li>
           <li>v1.4：QQ 官方机器人接入</li>
@@ -840,6 +841,9 @@
           <li>v1.12：重构为企微QQ量子密信三通道机器人技能，README 全面重写</li>
           <li>v1.13：量子密信 DCOOS 平台模式（7 种消息类型 + 加密验签 + 多群推送）</li>
           <li>v1.14：量子密信 webhook 模式解除限制，图片/文件推送全通</li>
+          <li>v1.15：三通道权限确认群内应答 + 流式输出</li>
+          <li>v1.16：确认通知可靠性增强 + 8505 待确认看板</li>
+          <li>v1.17：多轮权限确认（全局轮询 + conf_id 去重）</li>
         </ul>
       </div>
       <div class="box">
@@ -859,10 +863,10 @@
     <div class="end-content">
       <h2>谢谢观看</h2>
       <p>三个项目 · 一套体系 · 全链路闭环<br>从 AI 大脑到一线营销，让技术真正服务于业务</p>
-      <div class="brand">李准的星小辰 · 2026-08-22</div>
+      <div class="brand">李准的星小辰 · 2026-08-29</div>
       <p style="margin-top:24px; font-size:16px; color:#6080a8;">
-        openai-proxy (GitHub: lizhun781021/teleagent-openai-proxy) v1.6.0<br>
-        wecom-bot (GitHub: lizhun781021/wecom-bot) v1.14.0<br>
+        openai-proxy (GitHub: lizhun781021/teleagent-openai-proxy) v1.7.0<br>
+        wecom-bot (GitHub: lizhun781021/wecom-bot) v1.17.0<br>
         河南标准化赋能工具（TeleAgent 内置技能）
       </p>
     </div>
