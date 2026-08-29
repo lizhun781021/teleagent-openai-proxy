@@ -3,16 +3,38 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '0f7e548f-30a9-485f-a772-73f2f8c221ed'
-  PropagateID: '0f7e548f-30a9-485f-a772-73f2f8c221ed'
-  ReservedCode1: 'bce3e8b2-83ab-4746-a7a6-2605501ade98'
-  ReservedCode2: 'bce3e8b2-83ab-4746-a7a6-2605501ade98'
+  ProduceID: 'a689320a-64e9-4d7f-bac8-6d27e40a871f'
+  PropagateID: 'a689320a-64e9-4d7f-bac8-6d27e40a871f'
+  ReservedCode1: 'd0331da5-9e81-4773-982b-24a15677d434'
+  ReservedCode2: 'd0331da5-9e81-4773-982b-24a15677d434'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.7.0] - 2026-08-29
+
+### 新增
+
+- **常驻全局确认监听器（多轮确认支持）**
+  - 新增 `GlobalConfirmationListener` 后台线程：常驻连接 super-agent 的 `/global/event` 事件流，捕获**所有会话**的 `permission.asked` / `question.asked` 事件并登记到待确认表
+  - 不依赖任何 chat/completions 请求的 SSE 连接——即使一次请求的连接在第一次确认后关闭，后续轮次确认（AI 确认后继续执行又触发新敏感操作）也能被捕获
+  - 断线自动重连（5 秒间隔）
+- **session_id → 会话标题关联映射**
+  - 新增 `_session_title_map`：登记确认事件时自动补全会话标题，机器人侧轮询 `/api/permission/pending` 时可据此反查推送地址
+  - 按会话标题前缀匹配（含 `|` 的标题按 `|` 前部分匹配，时间变化仍复用会话）
+- **`POST /api/permission/inject` 测试接口（本地测试专用）**
+  - 用于验证 8088 → 机器人轮询 → QQ 推送完整链路，不依赖 AI 是否弹确认
+  - 仅允许本机（127.0.0.1 / ::1）调用，局域网/外网访问返回 403
+
+### 修复
+
+- **待确认登记幂等化（双通道去重）**
+  - 同一 conf_id 可能被全局监听器与请求链路 SSE 双通道捕获，旧代码会重复登记、重复触发回调
+  - 修复：`register_pending_confirmation` 已存在时仅补全缺失字段（title/session_id/description/tool/type），不刷新 time、不重复触发 `on_confirmation`，返回 `is_new=False` 供调用方判断
+  - 避免机器人侧重复推送通知、重复 reply 导致 404
 
 ## [1.6.2] - 2026-08-29
 

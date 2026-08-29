@@ -87,6 +87,10 @@ _pending_confirmations = {}      # id -> {type, session_id, title, description, 
 _pending_confirmations_lock = threading.Lock()
 _PENDING_CONFIRM_TTL = 1800      # 30分钟未处理自动清理
 
+# session_id -> session_title 映射（供确认事件关联到机器人侧会话标题）
+_session_title_map = {}          # session_id -> title
+_session_title_map_lock = threading.Lock()
+
 # 请求日志（环形缓冲，保留最近 200 条）
 _request_log = []
 _request_log_lock = threading.Lock()
@@ -310,8 +314,13 @@ _SESSION_QUERY_LIMIT = 300   # 查询会话列表上限
 
 
 def get_session_by_title(title, directory=DEFAULT_DIRECTORY):
-    """在 super-agent 会话列表中按标题精确匹配，返回最新更新的 session_id（无则 None）
+    """在 super-agent 会话列表中匹配会话，返回最新更新的 session_id（无则 None）
     只匹配同目录，避免误复用其他目录的同名会话。
+    
+    匹配规则：
+    - 标题含"|"时按前缀匹配：查找已有会话中标题以传入 title 的"|"前部分开头的会话
+      （如传入"星小辰机器人|08:35"可匹配"星小辰机器人|08:30"），实现时间变化仍复用
+    - 标题不含"|"时按精确匹配
     """
     if not title:
         return None
@@ -324,10 +333,19 @@ def get_session_by_title(title, directory=DEFAULT_DIRECTORY):
         return None
     if not isinstance(sessions, list):
         return None
+    # 提取前缀（用于含"|"的标题前缀匹配）
+    prefix = title.split("|", 1)[0] if "|" in title else None
     matched = []
     for s in sessions:
-        if s.get("title") != title:
-            continue
+        s_title = s.get("title", "") or ""
+        if prefix:
+            # 前缀匹配：已有会话标题也含"|"且前缀一致
+            s_prefix = s_title.split("|", 1)[0] if "|" in s_title else None
+            if s_prefix != prefix:
+                continue
+        else:
+            if s_title != title:
+                continue
         # 目录过滤：仅当两侧都有值时校验一致；super-agent 返回可能缺 directory 字段
         s_dir = s.get("directory", "") or ""
         if directory and s_dir and os.path.normpath(s_dir) != os.path.normpath(directory):
@@ -347,14 +365,19 @@ def get_or_create_session(directory=DEFAULT_DIRECTORY, title=None):
     """按标题复用会话：标题已存在同名会话则返回其 session_id，否则新建。
     返回 (session_id, reused: bool)；失败返回 (None, False)。
     并发保护：同一标题同时请求时只创建一次。
+    
+    对于含"|"的标题，缓存 key 统一用前缀（"|"前的部分），使时间变化仍命中缓存。
     """
     if not title:
         return create_session(directory=directory, title=None), False
 
+    # 缓存 key：含"|"时用前缀，否则用完整标题
+    cache_key = title.split("|", 1)[0] if "|" in title else title
+
     now = time.time()
     # 1. 本地缓存命中
     with _session_cache_lock:
-        cached = _session_cache.get(title)
+        cached = _session_cache.get(cache_key)
         if cached and now - cached[1] < SESSION_CACHE_TTL:
             return cached[0], True
 
@@ -362,24 +385,24 @@ def get_or_create_session(directory=DEFAULT_DIRECTORY, title=None):
     sid = get_session_by_title(title, directory=directory)
     if sid:
         with _session_cache_lock:
-            _session_cache[title] = (sid, now)
+            _session_cache[cache_key] = (sid, now)
         return sid, True
 
     # 3. 新建会话（进程内同名互斥，避免并发重复创建）
     with _session_cache_lock:
-        _title_create_locks.setdefault(title, threading.Lock())
-        create_lock = _title_create_locks[title]
+        _title_create_locks.setdefault(cache_key, threading.Lock())
+        create_lock = _title_create_locks[cache_key]
     with create_lock:
         # 双检：等待锁期间可能已被其他线程创建
         _sid = get_session_by_title(title, directory=directory)
         if _sid:
             with _session_cache_lock:
-                _session_cache[title] = (_sid, time.time())
+                _session_cache[cache_key] = (_sid, time.time())
             return _sid, True
         sid = create_session(directory=directory, title=title)
         if sid:
             with _session_cache_lock:
-                _session_cache[title] = (sid, time.time())
+                _session_cache[cache_key] = (sid, time.time())
         return sid, False
 
 
@@ -455,16 +478,39 @@ def get_messages(session_id):
 # 权限/问题确认回复（机器人侧"群里确认/拒绝"）
 # ============================================================
 def register_pending_confirmation(conf_id, conf_type, session_id, description="", tool=""):
-    """登记一个待确认请求（permission.asked / question.asked 事件触发）"""
+    """登记一个待确认请求（permission.asked / question.asked 事件触发）
+
+    幂等设计：同一 conf_id 可能被全局监听器与请求链路 SSE 双通道捕获，
+    若已登记则只补充缺失字段（title 等），不刷新 time、不触发重复消费，
+    避免机器人侧重复推送通知、重复 reply 导致 404。
+    """
+    # 自动补充 session_title 关联（若有映射）
+    with _session_title_map_lock:
+        title = _session_title_map.get(session_id, "")
     with _pending_confirmations_lock:
+        existing = _pending_confirmations.get(conf_id)
+        if existing is not None:
+            # 已存在：仅补全缺失信息（双通道重复捕获时保持首次登记为准）
+            if title and not existing.get("title"):
+                existing["title"] = title
+            if not existing.get("session_id"):
+                existing["session_id"] = session_id
+            if not existing.get("description") and description:
+                existing["description"] = description
+            if not existing.get("tool") and tool:
+                existing["tool"] = tool
+            if not existing.get("type") and conf_type:
+                existing["type"] = conf_type
+            return False  # 表示已存在（重复捕获）
         _pending_confirmations[conf_id] = {
             "type": conf_type,          # "permission" | "question"
             "session_id": session_id,
-            "title": "",                # 由外层补充
+            "title": title,             # 关联的会话标题（机器人侧可据此匹配推送）
             "description": description,
             "tool": tool,
             "time": time.time(),
         }
+        return True  # 首次登记
 
 
 def get_pending_confirmation(conf_id):
@@ -736,9 +782,10 @@ class SSEListener:
                     "id": permission_id, "type": "permission",
                     "description": desc, "tool": tool,
                 })
-                register_pending_confirmation(permission_id, "permission",
-                                              self.session_id, desc, tool)
-                if self.on_confirmation:
+                is_new = register_pending_confirmation(permission_id, "permission",
+                                                       self.session_id, desc, tool)
+                # 仅首次登记时触发回调（避免双通道重复注入 SSE 确认）
+                if is_new and self.on_confirmation:
                     self.on_confirmation(permission_id, "permission", desc, tool)
 
         elif etype == "question.asked":
@@ -755,9 +802,10 @@ class SSEListener:
                     "id": question_id, "type": "question",
                     "description": desc, "tool": tool,
                 })
-                register_pending_confirmation(question_id, "question",
-                                              self.session_id, desc, tool)
-                if self.on_confirmation:
+                is_new = register_pending_confirmation(question_id, "question",
+                                                       self.session_id, desc, tool)
+                # 仅首次登记时触发回调（避免双通道重复注入 SSE 确认）
+                if is_new and self.on_confirmation:
                     self.on_confirmation(question_id, "question", desc, tool)
 
     def get_full_text(self):
@@ -772,6 +820,172 @@ def listen_and_collect(session_id, timeout=120):
     listener = SSEListener(session_id, timeout=timeout)
     listener.listen()
     return listener.get_full_text(), "".join(listener.reasoning_chunks), listener.error, listener.tokens
+
+
+# ============================================================
+# 常驻全局确认监听器（多轮确认支持）
+# ============================================================
+class GlobalConfirmationListener:
+    """后台线程：常驻连接 super-agent 的 /global/event 事件流，
+    捕获所有会话的 permission.asked / question.asked 事件并登记到
+    _pending_confirmations，不依赖任何 chat/completions 请求的 SSE 连接。
+
+    这样即使一次请求的 SSE 连接在第一次确认后关闭，后续轮次的确认
+    （AI 确认后继续执行又触发新敏感操作）也能被捕获，机器人轮询
+    /api/permission/pending 即可发现并通知用户。断线自动重连。
+    """
+
+    RECONNECT_DELAY = 5  # 断线重连间隔（秒）
+
+    def __init__(self):
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._seen = set()  # 已登记过的 conf_id（幂等去重）
+
+    def stop(self):
+        self._stop.set()
+
+    def _connect_socket(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect((SUPER_AGENT_HOST, SUPER_AGENT_PORT))
+        sock.sendall(self._make_request())
+        return sock
+
+    def _make_request(self):
+        headers = sign_request("GET", "/global/event")
+        headers["Accept"] = "text/event-stream"
+        headers["Host"] = f"{SUPER_AGENT_HOST}:{SUPER_AGENT_PORT}"
+        req = f"GET /global/event HTTP/1.1\r\n"
+        for k, v in headers.items():
+            req += f"{k}: {v}\r\n"
+        req += "Connection: keep-alive\r\n\r\n"
+        return req.encode()
+
+    def _handle_event(self, event):
+        payload = event.get("payload", {})
+        etype = payload.get("type", "")
+        props = payload.get("properties", {})
+        session_id = props.get("sessionID", "")
+
+        conf_id = None
+        conf_type = None
+        desc = ""
+
+        if etype == "permission.asked":
+            conf_type = "permission"
+            conf_id = props.get("id") or props.get("permissionID") or props.get("permissionId") or ""
+            perm_type = props.get("permission") or ""
+            patterns = props.get("patterns") or []
+            always = props.get("always") or []
+            desc = props.get("description") or props.get("prompt") or ""
+            if not desc:
+                parts = []
+                if perm_type:
+                    parts.append(f"权限类型: {perm_type}")
+                if patterns:
+                    parts.append(f"路径: {', '.join(patterns)}")
+                elif always:
+                    parts.append(f"路径: {', '.join(always)}")
+                desc = " | ".join(parts) if parts else ""
+        elif etype == "question.asked":
+            conf_type = "question"
+            conf_id = props.get("id") or props.get("questionID") or props.get("questionId") or ""
+            desc = props.get("description") or props.get("prompt") or ""
+
+        if not conf_id or not conf_type:
+            return
+
+        with self._lock:
+            if conf_id in self._seen:
+                return
+            self._seen.add(conf_id)
+
+        register_pending_confirmation(conf_id, conf_type, session_id, desc, "")
+        # 补充 session_title 关联（若已知）
+        with _session_title_map_lock:
+            title = _session_title_map.get(session_id, "")
+        if title:
+            with _pending_confirmations_lock:
+                if conf_id in _pending_confirmations:
+                    _pending_confirmations[conf_id]["title"] = title
+        print(f"[GLOBAL-CONF] 常驻监听器捕获确认: id={conf_id} type={conf_type} "
+              f"session={session_id[:20]} title={title[:30]} desc={desc[:80]}", file=sys.stderr)
+
+    def run(self):
+        """主循环：连接 → 监听 → 断线重连"""
+        while not self._stop.is_set():
+            sock = None
+            try:
+                sock = self._connect_socket()
+                buffer = ""
+                header_parsed = False
+                print("[GLOBAL-CONF] 常驻确认监听器已连接 /global/event", file=sys.stderr)
+                while not self._stop.is_set():
+                    ready = select.select([sock], [], [], 1)
+                    if not ready[0]:
+                        continue
+                    try:
+                        chunk = sock.recv(8192)
+                    except socket.timeout:
+                        continue
+                    except Exception:
+                        break
+                    if not chunk:
+                        break
+                    buffer += chunk.decode("utf-8", errors="replace")
+                    if not header_parsed and "\r\n\r\n" in buffer:
+                        _, buffer = buffer.split("\r\n\r\n", 1)
+                        header_parsed = True
+                    if not header_parsed:
+                        continue
+                    lines = buffer.split("\n")
+                    buffer = lines.pop()
+                    for line in lines:
+                        line = line.strip()
+                        if not line.startswith("data:"):
+                            continue
+                        event_data = line[5:].strip()
+                        if not event_data:
+                            continue
+                        try:
+                            int(event_data, 16)
+                            continue
+                        except ValueError:
+                            pass
+                        try:
+                            event = json.loads(event_data)
+                        except json.JSONDecodeError:
+                            continue
+                        try:
+                            self._handle_event(event)
+                        except Exception as e:
+                            print(f"[GLOBAL-CONF] 处理事件异常: {e}", file=sys.stderr)
+            except Exception as e:
+                print(f"[GLOBAL-CONF] 监听异常: {e}", file=sys.stderr)
+            finally:
+                if sock:
+                    try:
+                        sock.close()
+                    except Exception:
+                        pass
+            if self._stop.is_set():
+                break
+            time.sleep(self.RECONNECT_DELAY)
+
+
+_global_conf_listener = None
+
+
+def start_global_confirmation_listener():
+    """启动常驻确认监听器（幂等，只启动一次）"""
+    global _global_conf_listener
+    if _global_conf_listener is not None:
+        return
+    _global_conf_listener = GlobalConfirmationListener()
+    t = threading.Thread(target=_global_conf_listener.run, daemon=True)
+    t.start()
+    print("[GLOBAL-CONF] 常驻确认监听线程已启动", file=sys.stderr)
 
 
 # ============================================================
@@ -880,9 +1094,10 @@ class StreamingSSEListener(SSEListener):
                     "id": permission_id, "type": "permission",
                     "description": desc, "tool": tool,
                 })
-                register_pending_confirmation(permission_id, "permission",
-                                              self.session_id, desc, tool)
-                if self.on_confirmation:
+                is_new = register_pending_confirmation(permission_id, "permission",
+                                                       self.session_id, desc, tool)
+                # 仅首次登记时触发回调（避免双通道重复注入 SSE 确认）
+                if is_new and self.on_confirmation:
                     self.on_confirmation(permission_id, "permission", desc, tool)
 
         elif etype == "question.asked":
@@ -899,9 +1114,10 @@ class StreamingSSEListener(SSEListener):
                     "id": question_id, "type": "question",
                     "description": desc, "tool": tool,
                 })
-                register_pending_confirmation(question_id, "question",
-                                              self.session_id, desc, tool)
-                if self.on_confirmation:
+                is_new = register_pending_confirmation(question_id, "question",
+                                                       self.session_id, desc, tool)
+                # 仅首次登记时触发回调（避免双通道重复注入 SSE 确认）
+                if is_new and self.on_confirmation:
                     self.on_confirmation(question_id, "question", desc, tool)
 
 
@@ -981,6 +1197,8 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             self._handle_api_default_model()
         elif path == "/api/permission/reply":
             self._handle_permission_reply()
+        elif path == "/api/permission/inject":
+            self._handle_permission_inject()
         else:
             self._send_json(404, {"error": {"message": "Not found", "type": "invalid_request"}})
 
@@ -1163,6 +1381,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                 "id": conf_id,
                 "type": info.get("type", ""),
                 "session_id": info.get("session_id", ""),
+                "title": info.get("title", ""),
                 "description": info.get("description", ""),
                 "tool": info.get("tool", ""),
                 "time": info.get("time", 0),
@@ -1223,6 +1442,47 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": detail})
         else:
             self._send_json(400, {"error": f"Unknown confirmation type: {conf_type}"})
+
+    def _handle_permission_inject(self):
+        """POST /api/permission/inject — 本地测试专用：注入一条模拟确认，
+        用于验证 8088 → QQ适配器轮询 → QQ推送 的完整链路（不依赖 AI 是否弹确认）。
+
+        Body:
+          {
+            "type": "permission",           # permission | question
+            "title": "QQ|私聊|李四|2026-08-20 07:46",   # 会话标题（带 QQ| 前缀才会被轮询推送）
+            "description": "权限类型: external_directory | 路径: /test-inject/*"
+          }
+
+        安全限制：仅允许本机（127.0.0.1 / ::1）调用，禁止局域网/外网访问，
+        防止任意设备向 QQ 会话注入虚假确认通知。
+        """
+        client_ip = self.client_address[0] if self.client_address else ""
+        if client_ip not in ("127.0.0.1", "::1"):
+            log_request(f"WARN /api/permission/inject 被拒绝访问: 来源 {client_ip}（仅允许本机）")
+            self._send_json(403, {"error": "inject endpoint is localhost-only"})
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            req_data = json.loads(body)
+        except Exception as e:
+            self._send_json(400, {"error": f"Invalid JSON: {e}"})
+            return
+        conf_type = req_data.get("type", "permission")
+        title = req_data.get("title", "")
+        description = req_data.get("description", "测试注入确认")
+        conf_id = f"per_test_inject_{int(time.time()*1000)}" if conf_type == "permission" else f"que_test_inject_{int(time.time()*1000)}"
+        with _pending_confirmations_lock:
+            _pending_confirmations[conf_id] = {
+                "type": conf_type,
+                "session_id": "ses_test_inject",
+                "title": title,
+                "description": description,
+                "tool": "test-inject",
+                "time": time.time(),
+            }
+        self._send_json(200, {"success": True, "id": conf_id, "title": title})
 
     def _serve_console(self):
         html = CONSOLE_HTML
@@ -1377,6 +1637,15 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         if not session_id:
             self._send_json(500, {"error": {"message": "Failed to create session", "type": "server_error"}})
             return
+
+        # 登记 session_id -> session_title 映射（供确认事件关联机器人侧会话）
+        with _session_title_map_lock:
+            _session_title_map[session_id] = session_title
+            # 防止无限增长，只保留最近 200 条
+            if len(_session_title_map) > 200:
+                oldest_keys = list(_session_title_map.keys())[:len(_session_title_map) - 200]
+                for k in oldest_keys:
+                    _session_title_map.pop(k, None)
 
         # 提取 prompt 摘要用于日志
         prompt_preview = ""
@@ -2470,6 +2739,9 @@ def main():
     if status != 200:
         print(f"[ERROR] super-agent 健康检查失败 (status={status})", file=sys.stderr)
         sys.exit(1)
+
+    # 启动常驻全局确认监听器（支持多轮确认：后续轮次的 permission.asked 也能被捕获登记）
+    start_global_confirmation_listener()
 
     # 获取可用模型列表
     status, resp, _ = sa_request("GET", "/provider", timeout=10)
