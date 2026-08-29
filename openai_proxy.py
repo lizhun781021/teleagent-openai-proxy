@@ -708,13 +708,30 @@ class SSEListener:
 
         elif etype == "permission.asked":
             # AI 需要用户授权（访问外部目录、执行命令等）
-            permission_id = props.get("permissionID") or ""
+            # super-agent 的 permission.asked 事件结构：
+            # {id, sessionID, permission, patterns, always, tool}
+            permission_id = props.get("id") or props.get("permissionID") or props.get("permissionId") or ""
+            perm_type = props.get("permission") or ""
+            patterns = props.get("patterns") or []
+            always = props.get("always") or []
+            tool_raw = props.get("tool") or props.get("toolID") or ""
+            # 构造人类可读描述
             desc = props.get("description") or props.get("prompt") or ""
-            tool = props.get("toolID") or props.get("tool") or ""
-            action = props.get("action") or ""
+            if not desc:
+                parts = []
+                if perm_type:
+                    parts.append(f"权限类型: {perm_type}")
+                if patterns:
+                    parts.append(f"路径: {', '.join(patterns)}")
+                elif always:
+                    parts.append(f"路径: {', '.join(always)}")
+                desc = " | ".join(parts) if parts else ""
+            # tool 可能是 dict（含 messageID/callID）也可能是字符串
+            if isinstance(tool_raw, dict):
+                tool = tool_raw.get("callID") or tool_raw.get("name") or ""
+            else:
+                tool = str(tool_raw) if tool_raw else ""
             if permission_id:
-                if not desc and action:
-                    desc = action
                 self.pending_confirmations.append({
                     "id": permission_id, "type": "permission",
                     "description": desc, "tool": tool,
@@ -726,9 +743,13 @@ class SSEListener:
 
         elif etype == "question.asked":
             # AI 向用户提问（需要选择答案）
-            question_id = props.get("questionID") or ""
+            question_id = props.get("id") or props.get("questionID") or props.get("questionId") or ""
             desc = props.get("description") or props.get("prompt") or ""
-            tool = props.get("toolID") or props.get("tool") or ""
+            tool_raw = props.get("tool") or props.get("toolID") or ""
+            if isinstance(tool_raw, dict):
+                tool = tool_raw.get("callID") or tool_raw.get("name") or ""
+            else:
+                tool = str(tool_raw) if tool_raw else ""
             if question_id:
                 self.pending_confirmations.append({
                     "id": question_id, "type": "question",
@@ -771,6 +792,7 @@ class StreamingSSEListener(SSEListener):
         etype = payload.get("type", "")
         props = payload.get("properties", {})
 
+        # session_id 过滤：只关注当前会话的事件
         session_id = props.get("sessionID", "")
         if session_id and session_id != self.session_id:
             return
@@ -831,13 +853,29 @@ class StreamingSSEListener(SSEListener):
 
         elif etype == "permission.asked":
             # AI 需要用户授权（访问外部目录、执行命令等）
-            permission_id = props.get("permissionID") or ""
+            # super-agent 事件结构: {id, sessionID, permission, patterns, always, tool}
+            permission_id = props.get("id") or props.get("permissionID") or props.get("permissionId") or ""
+            perm_type = props.get("permission") or ""
+            patterns = props.get("patterns") or []
+            always = props.get("always") or []
+            tool_raw = props.get("tool") or props.get("toolID") or ""
+            # 构造人类可读描述
             desc = props.get("description") or props.get("prompt") or ""
-            tool = props.get("toolID") or props.get("tool") or ""
-            action = props.get("action") or ""
+            if not desc:
+                parts = []
+                if perm_type:
+                    parts.append(f"权限类型: {perm_type}")
+                if patterns:
+                    parts.append(f"路径: {', '.join(patterns)}")
+                elif always:
+                    parts.append(f"路径: {', '.join(always)}")
+                desc = " | ".join(parts) if parts else ""
+            # tool 可能是 dict（含 messageID/callID）也可能是字符串
+            if isinstance(tool_raw, dict):
+                tool = tool_raw.get("callID") or tool_raw.get("name") or ""
+            else:
+                tool = str(tool_raw) if tool_raw else ""
             if permission_id:
-                if not desc and action:
-                    desc = action
                 self.pending_confirmations.append({
                     "id": permission_id, "type": "permission",
                     "description": desc, "tool": tool,
@@ -849,9 +887,13 @@ class StreamingSSEListener(SSEListener):
 
         elif etype == "question.asked":
             # AI 向用户提问（需要选择答案）
-            question_id = props.get("questionID") or ""
+            question_id = props.get("id") or props.get("questionID") or props.get("questionId") or ""
             desc = props.get("description") or props.get("prompt") or ""
-            tool = props.get("toolID") or props.get("tool") or ""
+            tool_raw = props.get("tool") or props.get("toolID") or ""
+            if isinstance(tool_raw, dict):
+                tool = tool_raw.get("callID") or tool_raw.get("name") or ""
+            else:
+                tool = str(tool_raw) if tool_raw else ""
             if question_id:
                 self.pending_confirmations.append({
                     "id": question_id, "type": "question",
@@ -1469,6 +1511,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
 
         # 权限/问题确认事件：以特殊 chunk 推给调用方（机器人据此提醒用户在群里确认）
         def send_confirmation(conf_id, conf_type, desc, tool):
+            print(f"[CONF] 发送确认请求: id={conf_id} type={conf_type} desc={str(desc)[:80]}", file=sys.stderr)
             conf_chunk = {
                 "id": request_id, "object": "chat.completion.chunk",
                 "created": created, "model": model_name,
@@ -1481,7 +1524,10 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                     "session_id": session_id,
                 },
             }
-            self._send_sse_chunk(conf_chunk)
+            try:
+                self._send_sse_chunk(conf_chunk)
+            except Exception as e:
+                print(f"[CONF] confirmation chunk 发送失败: {e}", file=sys.stderr)
 
         listener = StreamingSSEListener(
             session_id, on_delta=send_delta, on_complete=send_complete,

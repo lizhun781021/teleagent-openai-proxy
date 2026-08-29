@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>本地AI代理 + 企微QQ双通道机器人 · 融合介绍</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    width:1280px;
+    font-family:"PingFang SC","Microsoft YaHei","Helvetica Neue",sans-serif;
+    background:#f4f7fb;
+    color:#33415c;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== Hero ===== */
+  .hero {
+    background:linear-gradient(135deg,#e8f0fd 0%,#dbe9fb 40%,#e6f0f8 75%,#e8f5ee 100%);
+    padding:56px 64px 48px;
+    position:relative; overflow:hidden;
+    border-bottom:1px solid rgba(26,92,173,0.10);
+  }
+  .hero::after{
+    content:""; position:absolute; right:-80px; top:-80px; width:420px; height:420px;
+    background:radial-gradient(circle,rgba(47,139,255,0.13),transparent 70%); border-radius:50%;
+  }
+  .hero::before{
+    content:""; position:absolute; left:-100px; bottom:-130px; width:360px; height:360px;
+    background:radial-gradient(circle,rgba(15,157,88,0.10),transparent 70%); border-radius:50%;
+  }
+  .tag { display:inline-block; background:#fff; border:1px solid #cfe0f5;
+    color:#1a6bc4; font-size:19px; padding:6px 22px; border-radius:999px; letter-spacing:2px;
+    box-shadow:0 1px 4px rgba(26,92,173,0.08); }
+  .hero h1 { font-size:50px; font-weight:800; color:#0f3a6b; margin-top:24px; letter-spacing:2px; line-height:1.3; }
+  .hero .sub { font-size:22px; color:#5a83b8; margin-top:14px; font-weight:500; line-height:1.5; }
+  .hero .meta { display:flex; gap:40px; margin-top:32px; font-size:20px; color:#48689a; }
+  .hero .meta span b { color:#1a6bc4; font-size:28px; margin-right:6px; }
+
+  /* ===== 分隔标题 ===== */
+  .part-banner {
+    padding:28px 64px;
+    text-align:center;
+    font-size:24px; font-weight:800; letter-spacing:3px;
+    color:#fff;
+  }
+  .part-banner.a { background:linear-gradient(135deg,#1a6bc4,#2f8bff); }
+  .part-banner.b { background:linear-gradient(135deg,#1f8a4c,#2fbf6f); }
+  .part-banner.c { background:linear-gradient(135deg,#8e5cf0,#b08cff); }
+  .part-banner small { display:block; font-size:17px; font-weight:500; letter-spacing:1px; margin-top:6px; opacity:0.85; }
+
+  /* ===== 区块通用 ===== */
+  .sec { padding:36px 64px; }
+  .sec-head { display:flex; align-items:center; gap:14px; margin-bottom:24px; }
+  .sec-head .idx {
+    width:48px;height:48px;border-radius:11px;
+    display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:#fff;flex-shrink:0;
+  }
+  .sec-head .idx.blue { background:linear-gradient(135deg,#1a6bc4,#2f8bff); box-shadow:0 3px 10px rgba(47,139,255,0.25); }
+  .sec-head .idx.green { background:linear-gradient(135deg,#1f8a4c,#2fbf6f); box-shadow:0 3px 10px rgba(31,138,76,0.25); }
+  .sec-head .idx.purple { background:linear-gradient(135deg,#8e5cf0,#b08cff); box-shadow:0 3px 10px rgba(142,92,240,0.25); }
+  .sec-head .t1 { font-size:32px;font-weight:800;color:#0f3c70; }
+  .sec-head .t2 { font-size:18px;color:#7a9cc9;margin-left:6px; }
+  .line { flex:1; height:2px; background:linear-gradient(90deg,rgba(26,107,196,0.25),transparent); }
+
+  /* ===== KPI ===== */
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+  .kpi { background:#fff; border:1px solid #e1ebf7; border-radius:14px; padding:20px 18px;
+    box-shadow:0 2px 8px rgba(31,84,150,0.06); }
+  .kpi .lab{ font-size:18px; color:#6b87ad; }
+  .kpi .val{ font-size:30px; font-weight:800; color:#1a6bc4; margin-top:8px; }
+  .kpi .val small{ font-size:18px; font-weight:600; color:#4f8fd0; }
+  .kpi .note{ font-size:15px; color:#8aa5c8; margin-top:6px; line-height:1.5; }
+  .kpi.green .val { color:#1f8a4c; }
+  .kpi.green .val small { color:#4fb87e; }
+  .kpi.purple .val { color:#8e5cf0; }
+  .kpi.purple .val small { color:#b08cff; }
+
+  /* ===== 卡片 ===== */
+  .cards { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .cards.two { grid-template-columns:repeat(2,1fr); }
+  .card {
+    background:#fff; border:1px solid #e1ebf7; border-radius:14px; padding:20px 22px;
+    box-shadow:0 2px 8px rgba(31,84,150,0.06);
+  }
+  .card .ic { font-size:21px; margin-bottom:10px; display:inline-block;
+    background:#eef5fd; border-radius:9px; padding:6px 10px; }
+  .card.green .ic { background:#eafaf1; }
+  .card.purple .ic { background:#f3eefe; }
+  .card h4 { font-size:20px; font-weight:700; color:#0f3c70; margin-bottom:10px; }
+  .card p { font-size:16px; color:#55688d; line-height:1.7; }
+  .card p b { color:#1a6bc4; }
+  .card.green p b { color:#1f8a4c; }
+  .card.purple p b { color:#8e5cf0; }
+
+  /* ===== 表格 ===== */
+  table { width:100%; border-collapse:collapse; margin-top:6px; background:#fff;
+    border-radius:12px; overflow:hidden; box-shadow:0 2px 8px rgba(31,84,150,0.06); }
+  th { background:#e8f1fc; color:#0f3c70; font-size:17px; font-weight:700; padding:11px 12px;
+    text-align:center; border:1px solid #e0eaf6; }
+  td { font-size:16px; color:#3d5478; padding:11px 12px; text-align:left; border:1px solid #edf3fa; line-height:1.6; }
+  tr:nth-child(even) td{ background:#f8fbfe; }
+  td.c, th.c { text-align:center; }
+  td b { color:#0f3c70; }
+  td.bl { color:#1a6bc4; font-weight:700; white-space:nowrap; }
+  td.gl { color:#1f8a4c; font-weight:700; white-space:nowrap; }
+  td.pl { color:#8e5cf0; font-weight:700; white-space:nowrap; }
+
+  /* ===== 架构图 ===== */
+  .arch { background:#fff; border:1px solid #e1ebf7; border-radius:16px; padding:28px 30px;
+    box-shadow:0 2px 8px rgba(31,84,150,0.06); }
+  .arch .row { display:flex; justify-content:center; gap:18px; flex-wrap:wrap; }
+  .node { border-radius:12px; padding:13px 18px; font-size:16px; font-weight:700; text-align:center;
+    min-width:140px; color:#fff; box-shadow:0 2px 8px rgba(31,84,150,0.15); line-height:1.4; }
+  .node.blue { background:linear-gradient(135deg,#1a6bc4,#2f8bff); }
+  .node.green { background:linear-gradient(135deg,#1f8a4c,#2fbf6f); }
+  .node.purple { background:linear-gradient(135deg,#8e5cf0,#b08cff); }
+  .node.gray { background:linear-gradient(135deg,#5a7a9c,#7d9cbf); }
+  .node.orange { background:linear-gradient(135deg,#e07b1d,#f5a623); }
+  .node span { font-weight:500; font-size:13px; display:block; margin-top:3px; opacity:0.9; }
+  .flow { display:flex; align-items:center; justify-content:center; gap:10px; margin:14px 0; font-size:15px; color:#8aa5c8; }
+  .flow .ln { flex:0 0 30px; text-align:center; font-size:20px; color:#7fa8d8; }
+  .flow .tag2 { background:#eef3fd; border:1px solid #d7e6f8; color:#1a6bc4; border-radius:8px; padding:3px 12px; font-size:14px; font-weight:600; }
+
+  /* ===== 代码块 ===== */
+  .code {
+    background:#0f233f; border:1px solid rgba(255,255,255,0.12); border-radius:12px;
+    padding:16px 20px; font-family:"SF Mono",Menlo,Consolas,monospace; font-size:15px;
+    line-height:1.9; color:#9ec3f5; overflow-x:auto; margin-top:12px;
+  }
+  .code .cm { color:#6b8db8; }
+
+  /* ===== 双栏 ===== */
+  .duo { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .box { border-radius:14px; padding:22px 24px; background:#fff; border:1px solid #e1ebf7;
+    box-shadow:0 2px 8px rgba(31,84,150,0.06); }
+  .box h3 { font-size:21px; font-weight:800; color:#0f3c70; margin-bottom:14px; display:flex; align-items:center; gap:10px; }
+  .box h3 .dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+  .box ul { list-style:none; }
+  .box li { font-size:16.5px; color:#445c80; line-height:1.75; padding:7px 0; border-bottom:1px dashed #e6eef7; }
+  .box li:last-child { border-bottom:none; }
+  .box li b { color:#1c3a63; }
+  .box li .v { color:#1a6bc4; font-weight:700; }
+
+  /* ===== 场景卡片 ===== */
+  .scenes { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .scene { background:#fff; border:1px solid #e1ebf7; border-radius:14px; padding:20px 22px;
+    box-shadow:0 2px 8px rgba(31,84,150,0.06); }
+  .scene h4 { font-size:18px; font-weight:700; color:#0f3c70; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+  .scene h4 .no { font-size:15px; background:#8e5cf0; color:#fff; border-radius:50%; width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .scene p { font-size:16px; color:#55688d; line-height:1.75; }
+  .scene p b { color:#8e5cf0; }
+  .scene .chain { margin-top:12px; padding:12px 14px; background:#f8f6fe; border:1px solid #e6dff5; border-radius:10px; font-size:14.5px; color:#6b5c8a; line-height:1.8; }
+  .scene .chain b { color:#8e5cf0; }
+  .scene .chain .arrow { color:#b08cff; font-weight:700; margin:0 4px; }
+
+  /* ===== 提醒 ===== */
+  .warn { background:linear-gradient(135deg,#fff8ec,#fdf3e2); border:1px solid #f2d9a6;
+    border-radius:12px; padding:16px 20px; margin-top:8px; }
+  .warn p { font-size:16px; color:#7a5b1e; line-height:1.7; }
+  .warn p b { color:#b0780f; }
+
+  /* ===== 底部 ===== */
+  .foot { padding:30px 64px 42px; border-top:1px solid #e2ebf6; text-align:center; background:#fbfdff; }
+  .foot .brand{ font-size:21px; color:#1f6bc4; font-weight:700; letter-spacing:2px; }
+  .foot .src{ font-size:15.5px; color:#8aa3c6; margin-top:8px; }
+</style>
+</head>
+<body>
+
+<!-- ============ HERO ============ -->
+<div class="hero">
+  <div class="tag">本地 AI 代理 × 企微 QQ 双通道机器人 · 融合介绍</div>
+  <h1>从 AI 大脑到聊天群的全链路</h1>
+  <div class="sub">两个独立项目，一套融合体系 —— 让 TeleAgent 的 AI 能力，通过标准接口流向企微与 QQ 的每一个群和每一个人</div>
+  <div class="meta">
+    <span><b>2</b>个独立项目</span>
+    <span><b>1</b>条完整链路</span>
+    <span><b>8088</b>端口桥梁</span>
+    <span><b>企微+QQ</b>双通道</span>
+  </div>
+</div>
+
+<!-- ============ PART A: OpenAI Proxy ============ -->
+<div class="part-banner a">
+  PART A · 本地 AI 代理
+  <small>openai-proxy — 把 TeleAgent 变成标准 OpenAI 接口</small>
+</div>
+
+<!-- A-1 是什么 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx blue">壹</div>
+    <div class="t1">是什么</div><div class="t2">一个 1800 行的 Python 代理</div>
+    <div class="line"></div>
+  </div>
+  <div class="cards two">
+    <div class="card">
+      <span class="ic">🔌</span>
+      <h4>标准 OpenAI 兼容接口</h4>
+      <p>将 TeleAgent 桌面应用的 super-agent API 转换为标准 <b>/v1/chat/completions</b> 和 <b>/v1/models</b> 端点。任何支持 OpenAI API 的工具/SDK（Cursor、ChatBox、LangChain…）<b>无需改代码即可接入</b>。</p>
+    </div>
+    <div class="card">
+      <span class="ic">⚡</span>
+      <h4>零依赖 · 纯 Python</h4>
+      <p>纯标准库实现（http.server + hmac + threading），<b>无任何 pip install</b>。线程安全、SSE 流式输出、自动签名认证，启动即用。监听 0.0.0.0:8088，局域网可访问。</p>
+    </div>
+  </div>
+</div>
+
+<!-- A-2 核心数据 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx blue">贰</div>
+    <div class="t1">核心数据</div><div class="t2">v1.6.0 持续迭代</div>
+    <div class="line"></div>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><div class="lab">代码行数</div><div class="val">1800<small>+ 行</small></div><div class="note">纯 Python 标准库</div></div>
+    <div class="kpi"><div class="lab">第三方依赖</div><div class="val">0<small> 个</small></div><div class="note">无需 pip install</div></div>
+    <div class="kpi"><div class="lab">API 端点</div><div class="val">8<small> 个</small></div><div class="note">OpenAI 兼容 + 管理接口</div></div>
+    <div class="kpi"><div class="lab">控制台页面</div><div class="val">7<small> 个</small></div><div class="note">仪表盘/模型/日志/测试/会话/说明/系统</div></div>
+  </div>
+</div>
+
+<!-- A-3 架构原理 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx blue">叁</div>
+    <div class="t1">工作原理</div><div class="t2">客户端 → 代理 → super-agent</div>
+    <div class="line"></div>
+  </div>
+  <div class="arch">
+    <div class="row">
+      <div class="node gray">客户端 / SDK<br><span>curl / Python SDK / LangChain / ChatBox / Cursor</span></div>
+    </div>
+    <div class="flow"><span class="ln">↓</span>标准 OpenAI 格式（JSON / SSE 流式）<span class="tag2">api_key 随意填，不校验</span></div>
+    <div class="row">
+      <div class="node blue">openai-proxy (8088)<br><span>纯 Python · 线程安全 · 签名认证 · 会话管理</span></div>
+    </div>
+    <div class="flow"><span class="ln">↓</span>HMAC-SHA256 签名 + 异步 SSE 事件流<span class="tag2">自动获取 session key</span></div>
+    <div class="row">
+      <div class="node green">super-agent (4397)<br><span>TeleAgent 桌面应用 · AI 工具链 · 技能加载</span></div>
+    </div>
+    <div style="margin-top:16px; padding:14px 18px; background:#f8fbfe; border:1px solid #e0eaf6; border-radius:10px; font-size:15px; color:#55688d; line-height:1.7;">
+      <b style="color:#0f3c70;">签名机制</b>：代理自动从 scheduler 进程环境变量提取 <code>SUPER_AGENT_LOCAL_SESSION_KEY</code>，用 HMAC-SHA256 + base64url 生成 4 个签名头（X-SA-Sign-Version / Timestamp / Nonce / Signature），无需手动维护密钥。
+    </div>
+  </div>
+</div>
+
+<!-- A-4 技术要点 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx blue">肆</div>
+    <div class="t1">技术要点</div><div class="t2">关键实现</div>
+    <div class="line"></div>
+  </div>
+  <table>
+    <tr><th class="c" style="width:24%">要点</th><th>实现说明</th></tr>
+    <tr><td class="c bl">OpenAI 兼容</td><td>标准 <b>/v1/chat/completions</b>（流式 SSE + 非流式 JSON）和 <b>/v1/models</b>，API Key 随意填写不校验</td></tr>
+    <tr><td class="c bl">自动签名</td><td>自动获取 <b>SUPER_AGENT_LOCAL_SESSION_KEY</b>，HMAC-SHA256 生成签名头，认证失败自动刷新重试</td></tr>
+    <tr><td class="c bl">会话复用</td><td>v1.6.0 新增 <b>session_title</b> 按标题复用会话，同名会话不重建，对话上下文跨请求延续</td></tr>
+    <tr><td class="c bl">默认模型切换</td><td>Web 控制台动态修改默认模型，<b>立即生效</b>，影响所有未显式指定 model 的请求</td></tr>
+    <tr><td class="c bl">模型过滤</td><td>管理面板只展示 TeleAgent 中<b>已配置成功的 Provider</b>（source=config），未配置密钥的自动隐藏；每 30 秒自动同步</td></tr>
+    <tr><td class="c bl">Web 控制台</td><td>内置仪表盘 / 模型管理 / 请求日志（200 条环形缓冲）/ 在线测试 / 会话管理 / 系统信息</td></tr>
+    <tr><td class="c bl">launchd 托管</td><td>com.lizhun.openai-proxy，KeepAlive 崩溃重启 + 开机自启，使用 Homebrew Python 3.11 解决 TCC 权限</td></tr>
+  </table>
+</div>
+
+<!-- A-5 代码示例 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx blue">伍</div>
+    <div class="t1">接入方式</div><div class="t2">三行代码即可调用</div>
+    <div class="line"></div>
+  </div>
+  <div class="code">
+    <span class="cm"># Python OpenAI SDK 接入</span><br>
+    from openai import OpenAI<br><br>
+    client = OpenAI(base_url="http://127.0.0.1:8088/v1", api_key="any")  <span class="cm"># api_key 随意填</span><br>
+    resp = client.chat.completions.create(<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;model="NewApi/chat-pro",<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;messages=[{"role": "user", "content": "帮我配餐"}]<br>
+    )<br>
+    print(resp.choices[0].message.content)
+  </div>
+  <div style="margin-top:12px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;">
+    <div class="card" style="text-align:center; padding:16px;"><span class="ic">🔗</span><h4 style="font-size:17px;margin-bottom:4px;">API Base URL</h4><p style="font-size:15px;font-family:monospace;color:#1a6bc4;">http://127.0.0.1:8088/v1</p></div>
+    <div class="card" style="text-align:center; padding:16px;"><span class="ic">🔑</span><h4 style="font-size:17px;margin-bottom:4px;">API Key</h4><p style="font-size:15px;font-family:monospace;color:#1a6bc4;">any（随意填写）</p></div>
+    <div class="card" style="text-align:center; padding:16px;"><span class="ic">🤖</span><h4 style="font-size:17px;margin-bottom:4px;">推荐模型</h4><p style="font-size:15px;font-family:monospace;color:#1a6bc4;">NewApi/chat-pro</p></div>
+  </div>
+</div>
+
+<!-- ============ PART B: wecom-bot ============ -->
+<div class="part-banner b">
+  PART B · 企微 QQ 双通道机器人
+  <small>wecom-bot — 让 AI 大脑接入企微与 QQ 的每一个群</small>
+</div>
+
+<!-- B-1 是什么 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx green">壹</div>
+    <div class="t1">是什么</div><div class="t2">一个 AI 大脑，两端接入</div>
+    <div class="line"></div>
+  </div>
+  <div class="cards">
+    <div class="card green">
+      <span class="ic">🏢</span>
+      <h4>企业微信通道</h4>
+      <p>WebSocket 长连接接收消息，<b>无需域名、无需备案、无需回调服务器</b>。群聊 @机器人 发图/发文字，AI 自动回复，可主动推送群聊与个人。</p>
+    </div>
+    <div class="card green">
+      <span class="ic">🐧</span>
+      <h4>QQ 通道</h4>
+      <p>腾讯官方 botpy SDK 长连接，独立进程运行，<b>与企微互不干扰</b>。支持群 @ / 单聊，Markdown / 图片 / 视频 / 语音 / 文件 5 种媒体回复。</p>
+    </div>
+    <div class="card green">
+      <span class="ic">🧠</span>
+      <h4>统一 AI 大脑</h4>
+      <p>两通道共用<b>本地 8088 代理</b> → TeleAgent，复用同一套河南标准化赋能技能（五步法话术、配餐、质检），能力完全一致。</p>
+    </div>
+  </div>
+</div>
+
+<!-- B-2 核心数据 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx green">贰</div>
+    <div class="t1">核心能力</div><div class="t2">v1.9.3 持续迭代</div>
+    <div class="line"></div>
+  </div>
+  <div class="kpis">
+    <div class="kpi green"><div class="lab">主动推送</div><div class="val">4<small> 种</small></div><div class="note">文本/Markdown/图片/图文，群聊+个人</div></div>
+    <div class="kpi green"><div class="lab">企微后处理</div><div class="val">3<small> 件套</small></div><div class="note">写台账 + 建待办 + 生成文档</div></div>
+    <div class="kpi green"><div class="lab">QQ 媒体类型</div><div class="val">5<small> 种</small></div><div class="note">Markdown/图片/视频/语音/文件</div></div>
+    <div class="kpi green"><div class="lab">Web 面板</div><div class="val">8505</div><div class="note">双通道状态+消息记录+实时日志</div></div>
+  </div>
+</div>
+
+<!-- B-3 技术要点 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx green">叁</div>
+    <div class="t1">技术要点</div><div class="t2">关键实现细节</div>
+    <div class="line"></div>
+  </div>
+  <table>
+    <tr><th class="c" style="width:24%">要点</th><th>实现说明</th></tr>
+    <tr><td class="c gl">消息接收</td><td>企微 WebSocket 长连接（wss://openws.work.weixin.qq.com），QQ 用官方 botpy SDK；均不需要公网 IP / 域名 / 备案</td></tr>
+    <tr><td class="c gl">看图能力</td><td>企微 mixed 消息自动下载图片，<b>AES-256-CBC 解密</b>（Base64 aeskey 补齐 padding，IV=key 前 16 字节）后交给 AI</td></tr>
+    <tr><td class="c gl">企微回复</td><td>长连接<b>不支持 text 类型</b>，必须用 <b>stream 类型</b>（aibot_respond_msg + msgtype=stream）流式回复</td></tr>
+    <tr><td class="c gl">会话固定</td><td>私聊按 userid / 群按 chatid / QQ 按 openid 固定会话，<b>对话上下文自动延续</b>，群与私聊互不干扰</td></tr>
+    <tr><td class="c gl">代理绕行</td><td>server.py 启动即清除 http_proxy/HTTPS_PROXY 环境变量，防止 8088 回环请求被转发到外部代理导致挂起</td></tr>
+    <tr><td class="c gl">MCP 扩展</td><td>企微文档/表格/待办走 MCP（streamableHTTP），配置缺失时自动解密本地 AES-256-GCM 加密配置兜底</td></tr>
+    <tr><td class="c gl">launchd 托管</td><td>com.lizhun.wecom-bot（企微）+ com.lizhun.qq-adapter（QQ），KeepAlive 崩溃重启 + 开机自启</td></tr>
+  </table>
+</div>
+
+<!-- B-4 业务能力 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx green">肆</div>
+    <div class="t1">业务能力</div><div class="t2">不止聊天，更是自动化助手</div>
+    <div class="line"></div>
+  </div>
+  <div class="cards">
+    <div class="card green">
+      <span class="ic">💬</span>
+      <h4>AI 智能回复</h4>
+      <p>群内 @机器人 即可对话：<b>看图分析</b>（账单/聊天截图）、五步法话术、套餐比算、竞品应对，回复自动 Markdown 排版。</p>
+    </div>
+    <div class="card green">
+      <span class="ic">📊</span>
+      <h4>配餐台账自动记录</h4>
+      <p>AI 完成配餐方案后自动提取数据写入<b>企微在线表格台账</b>，留存可追溯，不用手动登记。</p>
+    </div>
+    <div class="card green">
+      <span class="ic">✅</span>
+      <h4>跟进待办自动创建</h4>
+      <p>每条配餐方案自动创建 <b>企微跟进待办</b>（默认 3 天后到期提醒），杜绝客户跟进遗漏。</p>
+    </div>
+    <div class="card green">
+      <span class="ic">📄</span>
+      <h4>复杂方案自动生成文档</h4>
+      <p>方案超 800 字或多级标题时自动生成<b>企微在线文档</b>发到群里，方便转发与沉淀。</p>
+    </div>
+    <div class="card green">
+      <span class="ic">🔑</span>
+      <h4>关键词快捷指令</h4>
+      <p>QQ 端支持 <b>/配餐 /质检 /日报 /话术 /帮助</b>（别名 /pc /zj /rb /hs /bz），一键唤起能力。</p>
+    </div>
+    <div class="card green">
+      <span class="ic">📣</span>
+      <h4>主动推送</h4>
+      <p>终端 / 脚本 / Web 面板均可推送：<b>群 Webhook</b>（文字/Markdown/图片/图文）+ <b>1v1 应用消息</b>（文本/卡片/图片/文件）。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PART C: 融合使用 ============ -->
+<div class="part-banner c">
+  PART C · 融合使用
+  <small>两个项目如何串成一条完整链路 —— 准哥的实战场景</small>
+</div>
+
+<!-- C-1 融合架构 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx purple">壹</div>
+    <div class="t1">融合架构</div><div class="t2">8088 是桥梁</div>
+    <div class="line"></div>
+  </div>
+  <div class="arch">
+    <div class="row">
+      <div class="node green" style="min-width:180px;">企微群聊 @机器人<br><span>WebSocket 长连接</span></div>
+      <div class="node green" style="min-width:180px;">QQ 群聊 @机器人<br><span>botpy SDK 长连接</span></div>
+    </div>
+    <div class="flow"><span class="ln">↓</span>消息接收：server.py / qq_official_adapter.py 统一管线</div>
+    <div class="row">
+      <div class="node gray">wecom-bot 消息处理层<br><span>会话固定 · 指令分发 · 代理绕行</span></div>
+    </div>
+    <div class="flow"><span class="ln">↓</span>POST /v1/chat/completions + session_title<span class="tag2">OpenAI 兼容格式</span></div>
+    <div class="row">
+      <div class="node blue" style="min-width:200px;">openai-proxy (8088)<br><span>签名认证 · 会话复用 · SSE 转流</span></div>
+    </div>
+    <div class="flow"><span class="ln">↓</span>HMAC-SHA256 签名 + 异步 SSE 事件流</div>
+    <div class="row">
+      <div class="node purple" style="min-width:200px;">TeleAgent super-agent<br><span>AI 大脑 · 看图 · 河南标准化技能</span></div>
+    </div>
+    <div class="flow"><span class="ln">↓</span>AI 回复原路返回 + 后处理三件套</div>
+    <div class="row">
+      <div class="node green">企微群聊回复<br><span>stream 流式</span></div>
+      <div class="node green">QQ 消息回复<br><span>post_message API</span></div>
+      <div class="node orange">配餐台账 + 待办 + 文档<br><span>MCP 自动执行</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- C-2 融合价值 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx purple">贰</div>
+    <div class="t1">为什么要融合</div><div class="t2">1+1 > 2</div>
+    <div class="line"></div>
+  </div>
+  <div class="duo">
+    <div class="box">
+      <h3><span class="dot" style="background:#1a6bc4;"></span>单独的 openai-proxy</h3>
+      <ul>
+        <li>能力很强，但只是一个<b>本地 API 接口</b></li>
+        <li>需要自己写代码 / 配工具才能调用</li>
+        <li>缺少触达一线员工的<b>最后一公里</b></li>
+        <li>适合开发者自用，不适合全员推广</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3><span class="dot" style="background:#1f8a4c;"></span>单独的 wecom-bot</h3>
+      <ul>
+        <li>能触达群聊，但缺少 AI 能力时只是<b>消息转发器</b></li>
+        <li>如果直连外部大模型 API，需重复管理密钥/模型/计费</li>
+        <li>无法复用 TeleAgent 的<b>工具链和技能体系</b></li>
+        <li>看图、配餐、质检等复杂能力难以独立实现</li>
+      </ul>
+    </div>
+  </div>
+  <div style="height:14px"></div>
+  <div class="box" style="background:linear-gradient(135deg,#f5f0ff,#faf7fe); border-color:#e0d5f5;">
+    <h3><span class="dot" style="background:#8e5cf0;"></span>融合之后 —— 完整闭环</h3>
+    <ul>
+      <li><b>openai-proxy 提供 AI 能力</b>：标准接口 + 自动签名 + 会话管理 + 模型切换，无需维护额外密钥</li>
+      <li><b>wecom-bot 提供触达通道</b>：企微 + QQ 双通道，@即用，一线员工零门槛</li>
+      <li><b>TeleAgent 提供智能内核</b>：看图工具 + 河南标准化技能 + 长期记忆 + 多智能体</li>
+      <li>三者串联：<b>群聊 @ → 消息管线 → 8088 代理 → AI 大脑 → 回复 + 台账 + 待办</b>，全自动闭环</li>
+    </ul>
+  </div>
+</div>
+
+<!-- C-3 实战场景 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx purple">叁</div>
+    <div class="t1">实战场景</div><div class="t2">准哥每天的用法</div>
+    <div class="line"></div>
+  </div>
+  <div class="scenes">
+    <div class="scene">
+      <h4><span class="no">1</span>营业厅群智能配餐</h4>
+      <p>客户在企微群发账单截图 @机器人 → AI <b>看图识别套餐与消费</b> → 按五步法给出提值方案 → 自动写台账 + 建待办 → 群里通知含链接。</p>
+      <div class="chain"><b>群聊 @</b> <span class="arrow">→</span> server.py 接收 <span class="arrow">→</span> 8088 代理 <span class="arrow">→</span> TeleAgent 看图+配餐 <span class="arrow">→</span> 回复+台账+待办</div>
+    </div>
+    <div class="scene">
+      <h4><span class="no">2</span>质检话术即问即答</h4>
+      <p>营销人员在 QQ 群 @机器人 提问：<b>录音质检要点、五步法话术、比算单填法、FTTR 推荐</b>，AI 基于河南标准化技能即时回复，培训即用。</p>
+      <div class="chain"><b>QQ @</b> <span class="arrow">→</span> botpy 接收 <span class="arrow">→</span> 8088 代理 <span class="arrow">→</span> TeleAgent 加载技能 <span class="arrow">→</span> Markdown 回复</div>
+    </div>
+    <div class="scene">
+      <h4><span class="no">3</span>日报通报自动推送</h4>
+      <p>定时任务调用 <b>push.py</b>：收入日报、质检通报、AI 新闻等 Markdown 图文自动推送到企微群 / QQ 群，无需人工复制粘贴。</p>
+      <div class="chain"><b>定时脚本</b> <span class="arrow">→</span> push.py <span class="arrow">→</span> 企微 Webhook / QQ post_message <span class="arrow">→</span> 群聊收到通报</div>
+    </div>
+    <div class="scene">
+      <h4><span class="no">4</span>Cursor / ChatBox 接入 AI</h4>
+      <p>开发时用 <b>Cursor / ChatBox / LangChain</b> 直接连 8088 代理，复用 TeleAgent 的模型与技能能力，写代码、查文档、做分析一站搞定。</p>
+      <div class="chain"><b>Cursor / SDK</b> <span class="arrow">→</span> http://127.0.0.1:8088/v1 <span class="arrow">→</span> 代理签名转发 <span class="arrow">→</span> TeleAgent AI 回复</div>
+    </div>
+    <div class="scene">
+      <h4><span class="no">5</span>8505 面板日常运维</h4>
+      <p>打开 <b>http://127.0.0.1:8505</b> 一屏掌握企微+QQ 双通道状态、消息记录、实时日志，主动推送消息不用写命令行。</p>
+      <div class="chain"><b>Web 面板</b> <span class="arrow">→</span> 状态监控 + 消息记录 + 主动推送 <span class="arrow">→</span> 运维一目了然</div>
+    </div>
+    <div class="scene">
+      <h4><span class="no">6</span>8088 控制台模型管理</h4>
+      <p>打开 <b>http://127.0.0.1:8088/console</b> 查看请求统计、切换默认模型、在线测试，所有 AI 调用一端管控。</p>
+      <div class="chain"><b>8088 控制台</b> <span class="arrow">→</span> 仪表盘 + 模型切换 + 日志 + 测试 <span class="arrow">→</span> AI 侧统一管理</div>
+    </div>
+  </div>
+</div>
+
+<!-- C-4 日常运维全景 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx purple">肆</div>
+    <div class="t1">日常运维全景</div><div class="t2">三个端口 · 两条链路 · 一套体系</div>
+    <div class="line"></div>
+  </div>
+  <table>
+    <tr><th class="c" style="width:16%">组件</th><th class="c" style="width:14%">端口</th><th>角色</th><th class="c" style="width:18%">launchd 服务</th></tr>
+    <tr><td class="c pl">openai-proxy</td><td class="c"><b>8088</b></td><td>AI 能力网关：OpenAI 兼容接口 + 签名 + 会话管理 + 控制台</td><td class="c">com.lizhun.openai-proxy</td></tr>
+    <tr><td class="c gl">wecom-bot</td><td class="c"><b>8505</b></td><td>企微通道：消息接收/回复 + 主动推送 + 配餐后处理 + 管理面板</td><td class="c">com.lizhun.wecom-bot</td></tr>
+    <tr><td class="c gl">qq-adapter</td><td class="c"><b>18506</b></td><td>QQ 通道：官方 botpy 接收/回复 + 内部推送端点（仅回环）</td><td class="c">com.lizhun.qq-adapter</td></tr>
+  </table>
+  <div style="height:12px"></div>
+  <div class="duo">
+    <div class="box">
+      <h3><span class="dot" style="background:#1a6bc4;"></span>AI 侧管理（8088 控制台）</h3>
+      <ul>
+        <li>仪表盘：请求数 / Token / 错误率 / 运行时长</li>
+        <li>模型管理：查看已配置模型，切换默认模型</li>
+        <li>请求日志：最近 200 条调用记录</li>
+        <li>在线测试：页面直接发请求验证</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3><span class="dot" style="background:#1f8a4c;"></span>通道侧管理（8505 面板）</h3>
+      <ul>
+        <li>双通道状态：企微连接 + QQ 连接</li>
+        <li>消息记录：来源标签 + 历史回填</li>
+        <li>主动推送：企微群/个人 + QQ 群/私聊</li>
+        <li>实时日志：双通道日志合并刷新</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- C-5 版本演进 -->
+<div class="sec">
+  <div class="sec-head">
+    <div class="idx purple">伍</div>
+    <div class="t1">两个项目版本</div><div class="t2">持续迭代中</div>
+    <div class="line"></div>
+  </div>
+  <div class="duo">
+    <div class="box">
+      <h3><span class="dot" style="background:#1a6bc4;"></span>openai-proxy · v1.6.0</h3>
+      <ul>
+        <li>v1.0：初始版本，基础代理 + Web 控制台</li>
+        <li>v1.x：稳定性增强，认证失败自动刷新重试</li>
+        <li>v1.4：支持 session_title 自定义会话标题</li>
+        <li>v1.5：动态默认模型管理 + 模型自动同步</li>
+        <li>v1.6：会话按标题复用，上下文跨请求延续</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3><span class="dot" style="background:#1f8a4c;"></span>wecom-bot · v1.9.3</h3>
+      <ul>
+        <li>v1.0：群聊收图 + AI 配餐全流程</li>
+        <li>v1.2：配餐后处理三件套（台账+待办+文档）</li>
+        <li>v1.4：QQ 官方机器人接入 + 双向桥</li>
+        <li>v1.6：QQ 六大能力（Markdown/视频/语音/@/指令/事件）</li>
+        <li>v1.9：会话固定 + 技能脱敏注册为 TeleAgent 技能</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 底部 ============ -->
+<div class="foot">
+  <div class="brand">李准的星小辰 · 2026-08-20</div>
+  <div class="src">资料来源：openai-proxy (GitHub: lizhun781021/teleagent-openai-proxy) v1.6.0 · wecom-bot (GitHub: lizhun781021/wecom-bot) v1.9.3</div>
+</div>
+
+</body>
+</html>

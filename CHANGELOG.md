@@ -3,16 +3,31 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '59ff4787-a94e-4dd5-9f53-2dd465a2c0ba'
-  PropagateID: '59ff4787-a94e-4dd5-9f53-2dd465a2c0ba'
-  ReservedCode1: '090659ac-233a-463b-ba5f-2d75d8c10218'
-  ReservedCode2: '090659ac-233a-463b-ba5f-2d75d8c10218'
+  ProduceID: '0f7e548f-30a9-485f-a772-73f2f8c221ed'
+  PropagateID: '0f7e548f-30a9-485f-a772-73f2f8c221ed'
+  ReservedCode1: 'bce3e8b2-83ab-4746-a7a6-2605501ade98'
+  ReservedCode2: 'bce3e8b2-83ab-4746-a7a6-2605501ade98'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.6.2] - 2026-08-29
+
+### 修复
+
+- **permission.asked 事件字段解析错误（根因修复）**
+  - super-agent 的 `permission.asked` 事件结构为 `{id, sessionID, permission, patterns, always, tool}`
+  - 旧代码用 `props.get("permissionID")` 取权限 ID，实际字段名是 `id` → 永远取到空值 → 不进入处理分支 → `on_confirmation` 回调不被调用
+  - 旧代码用 `props.get("description")` 取描述，实际不存在此字段 → confirmation chunk 的 description 为空 → 机器人通知消息无内容
+  - 旧代码用 `props.get("tool")` 取工具名，实际是 dict `{messageID, callID}` → 下游解析异常
+  - 修复：
+    - ID 字段：优先取 `props.get("id")`，兼容 `permissionID`/`permissionId`/`permission_id`
+    - 描述：从 `permission` + `patterns` 字段自动拼装人类可读描述（如"权限类型: external_directory | 路径: /usr/local/*"）
+    - 工具：tool 为 dict 时提取 `callID`，为字符串时直接使用
+  - 同步修复 `question.asked` 事件的相同问题（ID 字段名 + tool 类型）
 
 ## [1.6.1] - 2026-08-29
 
