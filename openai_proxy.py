@@ -243,6 +243,70 @@ def sign_request(method, path_with_query):
 
 
 # ============================================================
+# Tool Call 支持（让 s2s/机器人能通过 function calling 调用工具）
+# ============================================================
+# 8088 代理收到 OpenAI 格式的 tools 参数后，将工具描述注入到发给
+# TeleAgent 的 prompt 中，LLM 用特殊标记输出工具调用，代理解析后
+# 转成 OpenAI tool_calls 格式返回给调用方。
+
+_TOOL_CALL_PATTERN = re.compile(r'\[TOOL_CALL\]\s*(\{.*?\})\s*\[/TOOL_CALL\]', re.DOTALL)
+
+
+def _build_tool_prompt(tools):
+    """将 OpenAI tools 列表转成注入给 LLM 的工具描述文本。"""
+    if not tools:
+        return None
+    tool_descs = []
+    for t in tools:
+        if isinstance(t, dict):
+            fn = t.get("function", t)
+            name = fn.get("name", "")
+            desc = fn.get("description", "")
+            params = fn.get("parameters", {})
+            params_str = json.dumps(params, ensure_ascii=False, indent=2)
+            tool_descs.append(f"  - {name}: {desc}\n    参数: {params_str}")
+    if not tool_descs:
+        return None
+    tool_text = "\n".join(tool_descs)
+    return (
+        f"你可以使用以下工具：\n\n{tool_text}\n\n"
+        f"当你需要调用工具时，你的回复应该只包含以下格式，不要输出任何其他文字：\n"
+        f"[TOOL_CALL]{{\"name\": \"工具名称\", \"arguments\": {{...}}}}[/TOOL_CALL]\n"
+        f"当你不需要调用工具时，正常回复即可。"
+    )
+
+
+def _parse_tool_calls_from_text(text):
+    """从 LLM 回复文本中解析 [TOOL_CALL]...[/TOOL_CALL] 标记。
+    返回 (clean_text, tool_calls) 其中 tool_calls 为 OpenAI Chat Completions 格式。
+    """
+    matches = list(_TOOL_CALL_PATTERN.finditer(text))
+    if not matches:
+        return text, []
+    tool_calls = []
+    clean_parts = []
+    last_end = 0
+    for i, m in enumerate(matches):
+        clean_parts.append(text[last_end:m.start()])
+        last_end = m.end()
+        try:
+            tc = json.loads(m.group(1))
+            tool_calls.append({
+                "id": f"call_{i}",
+                "type": "function",
+                "function": {
+                    "name": tc.get("name", ""),
+                    "arguments": json.dumps(tc.get("arguments", {}), ensure_ascii=False)
+                }
+            })
+        except (json.JSONDecodeError, KeyError):
+            pass
+    clean_parts.append(text[last_end:])
+    clean_text = "".join(clean_parts).strip()
+    return clean_text, tool_calls
+
+
+# ============================================================
 # Super-Agent API 客户端
 # ============================================================
 def _force_refresh_session_key():
@@ -407,8 +471,12 @@ def get_or_create_session(directory=DEFAULT_DIRECTORY, title=None):
 
 
 def send_prompt_async(session_id, messages, directory=DEFAULT_DIRECTORY,
-                      provider_id=DEFAULT_PROVIDER, model_id=DEFAULT_MODEL):
-    """异步发送消息到 super-agent 会话"""
+                      provider_id=DEFAULT_PROVIDER, model_id=DEFAULT_MODEL,
+                      tools=None):
+    """异步发送消息到 super-agent 会话
+
+    tools: OpenAI 格式的工具列表，会注入到 prompt 中让 LLM 知道可用工具。
+    """
     # 将 OpenAI messages 格式转换为 super-agent 的 prompt
     # super-agent 会话本身维护上下文，但我们这里每次创建新会话
     # 所以需要将历史消息合并为一个 prompt
@@ -439,6 +507,18 @@ def send_prompt_async(session_id, messages, directory=DEFAULT_DIRECTORY,
             user_messages.append(content)
         elif role == "assistant":
             user_messages.append(f"[assistant] {content}")
+        elif role == "tool":
+            # 工具返回结果，作为对话上下文注入
+            user_messages.append(f"[tool_result] {content}")
+
+    # 如果有工具定义，注入到 system 消息
+    if tools:
+        tool_prompt = _build_tool_prompt(tools)
+        if tool_prompt:
+            if system_content:
+                system_content = system_content + "\n\n" + tool_prompt
+            else:
+                system_content = tool_prompt
 
     # 构建最终 prompt 文本
     # 如果只有一条 user 消息且无 system，直接用内容
@@ -1612,6 +1692,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         stream = req_data.get("stream", False)
         model = req_data.get("model", get_default_model())
         stream_options = req_data.get("stream_options", {}) or {}
+        tools = req_data.get("tools", None)  # 提取 tools 参数
 
         # 解析模型 provider/model
         if "/" in model:
@@ -1684,15 +1765,16 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         if stream:
             self._handle_streaming_logged(session_id, messages, request_id, created,
                                           provider_id, model_id, log_entry, start_time,
-                                          stream_options)
+                                          stream_options, tools)
         else:
             self._handle_non_streaming_logged(session_id, messages, request_id, created,
-                                               provider_id, model_id, log_entry, start_time)
+                                               provider_id, model_id, log_entry, start_time,
+                                               tools)
 
     def _handle_streaming_logged(self, session_id, messages, request_id, created,
                                   provider_id, model_id, log_entry, start_time,
-                                  stream_options=None):
-        """流式响应（带日志）"""
+                                  stream_options=None, tools=None):
+        """流式响应（带日志），支持 tool call 检测"""
         # 发送 SSE 响应头
         self._send_sse_headers()
         model_name = f"{provider_id}/{model_id}"
@@ -1702,7 +1784,14 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         has_error = False
         stream_options = stream_options or {}
 
-        def send_delta(text):
+        # Tool call 检测状态
+        _deciding = bool(tools)       # 有 tools 时先缓冲判断
+        _tool_mode = False            # 已确认是 tool call
+        _buffer = []                  # 缓冲的文本片段
+        _TOOL_PREFIX = "[TOOL_CALL]"
+
+        def _emit_content(text):
+            """发送 content delta"""
             nonlocal first_chunk_sent
             if not first_chunk_sent:
                 first_chunk = {
@@ -1721,8 +1810,98 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                 }
                 self._send_sse_chunk(chunk)
 
+        def send_delta(text):
+            nonlocal first_chunk_sent, _deciding, _tool_mode
+            if not text:
+                return
+
+            if _deciding:
+                _buffer.append(text)
+                accumulated = "".join(_buffer).lstrip()
+                if accumulated.startswith(_TOOL_PREFIX):
+                    # 确认是 tool call，切换到缓冲模式
+                    _tool_mode = True
+                    _deciding = False
+                    return
+                if len(accumulated) >= len(_TOOL_PREFIX):
+                    # 不可能是 tool call，正常流式输出
+                    _deciding = False
+                    _emit_content("".join(_buffer))
+                    _buffer.clear()
+                # 否则继续缓冲判断
+                return
+
+            if _tool_mode:
+                _buffer.append(text)
+                return
+
+            # 正常流式
+            _emit_content(text)
+
         def send_complete():
-            nonlocal collected_tokens
+            nonlocal collected_tokens, first_chunk_sent
+            if _tool_mode:
+                # 解析 tool calls
+                full_text = "".join(_buffer)
+                clean_text, tool_calls = _parse_tool_calls_from_text(full_text)
+                if tool_calls:
+                    # 发送 tool_calls delta
+                    if not first_chunk_sent:
+                        first_chunk = {
+                            "id": request_id, "object": "chat.completion.chunk",
+                            "created": created, "model": model_name,
+                            "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]
+                        }
+                        self._send_sse_chunk(first_chunk)
+                        first_chunk_sent = True
+                    for i, tc in enumerate(tool_calls):
+                        chunk = {
+                            "id": request_id, "object": "chat.completion.chunk",
+                            "created": created, "model": model_name,
+                            "choices": [{"index": 0, "delta": {
+                                "tool_calls": [{
+                                    "index": i,
+                                    "id": tc["id"],
+                                    "type": "function",
+                                    "function": tc["function"]
+                                }]
+                            }, "finish_reason": None}]
+                        }
+                        self._send_sse_chunk(chunk)
+                    end_chunk = {
+                        "id": request_id, "object": "chat.completion.chunk",
+                        "created": created, "model": model_name,
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]
+                    }
+                    self._send_sse_chunk(end_chunk)
+                    # usage chunk
+                    if stream_options.get("include_usage"):
+                        listener_tokens = getattr(listener, 'tokens', None) or {}
+                        usage = {
+                            "prompt_tokens": listener_tokens.get("input", 0),
+                            "completion_tokens": listener_tokens.get("output", 0),
+                            "total_tokens": listener_tokens.get("total",
+                                                               listener_tokens.get("input", 0) + listener_tokens.get("output", 0)),
+                        }
+                        usage_chunk = {
+                            "id": request_id, "object": "chat.completion.chunk",
+                            "created": created, "model": model_name,
+                            "choices": [], "usage": usage,
+                        }
+                        self._send_sse_chunk(usage_chunk)
+                    self._send_sse_end()
+                    log_entry["status"] = "success"
+                    log_entry["response_preview"] = f"[tool_calls: {len(tool_calls)}]"
+                    log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
+                    update_stats(model=model_name, streaming=True)
+                    return
+
+            # 还有未刷新的缓冲文本（deciding 阶段结束但没来得及 flush）
+            if _buffer and not _tool_mode:
+                _emit_content("".join(_buffer))
+                _buffer.clear()
+
+            # 正常完成
             if not first_chunk_sent:
                 first_chunk = {
                     "id": request_id, "object": "chat.completion.chunk",
@@ -1809,7 +1988,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         time.sleep(0.5)
 
         success = send_prompt_async(session_id, messages, DEFAULT_DIRECTORY,
-                                     provider_id, model_id)
+                                     provider_id, model_id, tools=tools)
         if not success:
             send_error({"message": "Failed to send prompt to super-agent"})
             return
@@ -1819,8 +1998,9 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             send_error({"message": "Response timeout"})
 
     def _handle_non_streaming_logged(self, session_id, messages, request_id, created,
-                                      provider_id, model_id, log_entry, start_time):
-        """非流式响应（带日志）"""
+                                      provider_id, model_id, log_entry, start_time,
+                                      tools=None):
+        """非流式响应（带日志），支持 tool call 解析"""
         model_name = f"{provider_id}/{model_id}"
         confirmations = []
         listener = StreamingSSEListener(
@@ -1836,7 +2016,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         time.sleep(0.5)
 
         success = send_prompt_async(session_id, messages, DEFAULT_DIRECTORY,
-                                     provider_id, model_id)
+                                     provider_id, model_id, tools=tools)
         if not success:
             self._send_json(500, {"error": {"message": "Failed to send prompt", "type": "server_error"}})
             log_entry["status"] = "error"
@@ -1901,17 +2081,38 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                 "completion_tokens": tokens.get("output", 0),
                 "total_tokens": tokens.get("total", tokens.get("input", 0) + tokens.get("output", 0)),
             }
-        response = {
-            "id": request_id, "object": "chat.completion",
-            "created": created, "model": model_name,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
-            "usage": usage,
-        }
-        self._send_json(200, response)
 
-        # 更新日志
-        log_entry["status"] = "success"
-        log_entry["response_preview"] = text[:100]
+        # 解析 tool calls（如果 tools 参数存在）
+        clean_text, tool_calls = text, []
+        if tools:
+            clean_text, tool_calls = _parse_tool_calls_from_text(text)
+
+        if tool_calls:
+            # 返回 tool_calls 格式
+            response = {
+                "id": request_id, "object": "chat.completion",
+                "created": created, "model": model_name,
+                "choices": [{"index": 0, "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": tool_calls
+                }, "finish_reason": "tool_calls"}],
+                "usage": usage,
+            }
+            self._send_json(200, response)
+            log_entry["status"] = "success"
+            log_entry["response_preview"] = f"[tool_calls: {len(tool_calls)}]"
+        else:
+            response = {
+                "id": request_id, "object": "chat.completion",
+                "created": created, "model": model_name,
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": clean_text}, "finish_reason": "stop"}],
+                "usage": usage,
+            }
+            self._send_json(200, response)
+            # 更新日志
+            log_entry["status"] = "success"
+            log_entry["response_preview"] = clean_text[:100]
         log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
         log_entry["tokens"] = tokens
         update_stats(model=model_name, streaming=False, tokens=tokens)

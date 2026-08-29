@@ -3,16 +3,29 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'a689320a-64e9-4d7f-bac8-6d27e40a871f'
-  PropagateID: 'a689320a-64e9-4d7f-bac8-6d27e40a871f'
-  ReservedCode1: 'd0331da5-9e81-4773-982b-24a15677d434'
-  ReservedCode2: 'd0331da5-9e81-4773-982b-24a15677d434'
+  ProduceID: '94ca4f52-0fbb-40d0-93cf-0bdeec41d166'
+  PropagateID: '94ca4f52-0fbb-40d0-93cf-0bdeec41d166'
+  ReservedCode1: 'b6ae3d08-6e8f-4946-ae31-1c0e6aea7da6'
+  ReservedCode2: 'b6ae3d08-6e8f-4946-ae31-1c0e6aea7da6'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.8.0] - 2026-08-29
+
+### 新增
+
+- **Tool Call 转发支持（function calling 桥接）**
+  - `send_prompt_async` 新增 `tools` 参数：收到 OpenAI 格式的 `tools` 列表后，自动将工具描述注入到发给 TeleAgent 的 system prompt 中
+  - LLM 通过 `[TOOL_CALL]{"name": "...", "arguments": {...}}[/TOOL_CALL]` 标记输出工具调用
+  - 新增 `_build_tool_prompt()` 和 `_parse_tool_calls_from_text()` 辅助函数
+  - **流式模式**：智能缓冲检测——前 11 字符（`[TOOL_CALL]` 长度）缓冲判断，确认是 tool call 则缓冲完整响应后解析为 OpenAI `tool_calls` delta + `finish_reason: "tool_calls"`；普通对话立即流式输出不受影响
+  - **非流式模式**：直接从响应文本解析 tool_calls，返回标准 OpenAI 格式
+  - 支持 `role: "tool"` 消息（工具返回结果作为 `[tool_result]` 注入对话上下文）
+  - 让 s2s / 机器人能通过标准 OpenAI function calling 协议调用 robot_vision 等工具
 
 ## [1.7.0] - 2026-08-29
 
