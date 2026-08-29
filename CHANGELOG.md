@@ -3,16 +3,25 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '94ca4f52-0fbb-40d0-93cf-0bdeec41d166'
-  PropagateID: '94ca4f52-0fbb-40d0-93cf-0bdeec41d166'
-  ReservedCode1: 'b6ae3d08-6e8f-4946-ae31-1c0e6aea7da6'
-  ReservedCode2: 'b6ae3d08-6e8f-4946-ae31-1c0e6aea7da6'
+  ProduceID: '12559d72-8a69-48a3-b752-79d255020b82'
+  PropagateID: '12559d72-8a69-48a3-b752-79d255020b82'
+  ReservedCode1: 'cd17562b-277d-4ead-b8ed-6b310832664b'
+  ReservedCode2: 'cd17562b-277d-4ead-b8ed-6b310832664b'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.8.1] - 2026-08-29
+
+### 修复
+
+- **会话复用时上下文双重累积导致 LLM 变慢/超时**
+  - 问题：s2s 每次发 10 轮历史给 8088，8088 把全部 messages 拼成巨型 prompt 发给 TeleAgent，而 TeleAgent 会话自身也维护完整历史 → 越聊上下文越大，LLM 越来越慢，最终超时导致 TTS 生成了音频但 WebSocket 下发失败（`audio=0.00s`）
+  - 修复：`send_prompt_async` 新增 `session_reused` 参数，会话复用时只发 system+tools 定义和最新一条用户消息，让 TeleAgent 自己维护上下文历史
+  - 同时将 s2s 的 `chat_size` 从 10 减至 6，进一步降低单次请求体积
 
 ## [1.8.0] - 2026-08-29
 

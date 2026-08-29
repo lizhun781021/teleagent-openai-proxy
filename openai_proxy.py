@@ -472,14 +472,17 @@ def get_or_create_session(directory=DEFAULT_DIRECTORY, title=None):
 
 def send_prompt_async(session_id, messages, directory=DEFAULT_DIRECTORY,
                       provider_id=DEFAULT_PROVIDER, model_id=DEFAULT_MODEL,
-                      tools=None):
+                      tools=None, session_reused=False):
     """异步发送消息到 super-agent 会话
 
     tools: OpenAI 格式的工具列表，会注入到 prompt 中让 LLM 知道可用工具。
+    session_reused: 会话是否复用。复用时只发 system+tools 和最新一条消息，
+                   避免与 TeleAgent 会话自身的历史双重累积导致上下文爆炸。
     """
     # 将 OpenAI messages 格式转换为 super-agent 的 prompt
-    # super-agent 会话本身维护上下文，但我们这里每次创建新会话
-    # 所以需要将历史消息合并为一个 prompt
+    # TeleAgent 会话本身维护上下文历史，所以：
+    #   - 新会话：发送完整历史（建立上下文）
+    #   - 复用会话：只发 system+tools + 最新一条消息（避免双重累积）
 
     # 提取 system 消息
     system_content = None
@@ -519,6 +522,11 @@ def send_prompt_async(session_id, messages, directory=DEFAULT_DIRECTORY,
                 system_content = system_content + "\n\n" + tool_prompt
             else:
                 system_content = tool_prompt
+
+    # 会话复用时，TeleAgent 已有完整对话历史。
+    # 只发 system+tools 和最新一条消息，避免上下文双重累积。
+    if session_reused and len(user_messages) > 1:
+        user_messages = [user_messages[-1]]
 
     # 构建最终 prompt 文本
     # 如果只有一条 user 消息且无 system，直接用内容
@@ -1693,6 +1701,9 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         model = req_data.get("model", get_default_model())
         stream_options = req_data.get("stream_options", {}) or {}
         tools = req_data.get("tools", None)  # 提取 tools 参数
+        if tools:
+            tool_names = [t.get("function", t).get("name", "?") for t in tools if isinstance(t, dict)]
+            print(f"[TOOLS] 收到 {len(tools)} 个工具: {tool_names}", file=sys.stderr)
 
         # 解析模型 provider/model
         if "/" in model:
@@ -1765,15 +1776,15 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         if stream:
             self._handle_streaming_logged(session_id, messages, request_id, created,
                                           provider_id, model_id, log_entry, start_time,
-                                          stream_options, tools)
+                                          stream_options, tools, session_reused)
         else:
             self._handle_non_streaming_logged(session_id, messages, request_id, created,
                                                provider_id, model_id, log_entry, start_time,
-                                               tools)
+                                               tools, session_reused)
 
     def _handle_streaming_logged(self, session_id, messages, request_id, created,
                                   provider_id, model_id, log_entry, start_time,
-                                  stream_options=None, tools=None):
+                                  stream_options=None, tools=None, session_reused=False):
         """流式响应（带日志），支持 tool call 检测"""
         # 发送 SSE 响应头
         self._send_sse_headers()
@@ -1785,10 +1796,9 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         stream_options = stream_options or {}
 
         # Tool call 检测状态
-        _deciding = bool(tools)       # 有 tools 时先缓冲判断
-        _tool_mode = False            # 已确认是 tool call
+        # 当 tools 参数存在时，始终缓冲完整响应再解析（LLM 可能在 tool call 前加对话文字）
+        _has_tools = bool(tools)
         _buffer = []                  # 缓冲的文本片段
-        _TOOL_PREFIX = "[TOOL_CALL]"
 
         def _emit_content(text):
             """发送 content delta"""
@@ -1811,39 +1821,25 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                 self._send_sse_chunk(chunk)
 
         def send_delta(text):
-            nonlocal first_chunk_sent, _deciding, _tool_mode
             if not text:
                 return
 
-            if _deciding:
-                _buffer.append(text)
-                accumulated = "".join(_buffer).lstrip()
-                if accumulated.startswith(_TOOL_PREFIX):
-                    # 确认是 tool call，切换到缓冲模式
-                    _tool_mode = True
-                    _deciding = False
-                    return
-                if len(accumulated) >= len(_TOOL_PREFIX):
-                    # 不可能是 tool call，正常流式输出
-                    _deciding = False
-                    _emit_content("".join(_buffer))
-                    _buffer.clear()
-                # 否则继续缓冲判断
-                return
-
-            if _tool_mode:
+            if _has_tools:
+                # 有 tools 时始终缓冲，等完整响应再解析
                 _buffer.append(text)
                 return
 
-            # 正常流式
+            # 无 tools 时正常流式
             _emit_content(text)
 
         def send_complete():
             nonlocal collected_tokens, first_chunk_sent
-            if _tool_mode:
-                # 解析 tool calls
+
+            # 有 tools 时：缓冲了完整响应，现在解析
+            if _has_tools and _buffer:
                 full_text = "".join(_buffer)
                 clean_text, tool_calls = _parse_tool_calls_from_text(full_text)
+
                 if tool_calls:
                     # 发送 tool_calls delta
                     if not first_chunk_sent:
@@ -1895,11 +1891,10 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                     log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
                     update_stats(model=model_name, streaming=True)
                     return
-
-            # 还有未刷新的缓冲文本（deciding 阶段结束但没来得及 flush）
-            if _buffer and not _tool_mode:
-                _emit_content("".join(_buffer))
-                _buffer.clear()
+                else:
+                    # 没有检测到 tool calls，把缓冲文本作为正常 content 发送
+                    _emit_content(clean_text or full_text)
+                    _buffer.clear()
 
             # 正常完成
             if not first_chunk_sent:
@@ -1988,7 +1983,8 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         time.sleep(0.5)
 
         success = send_prompt_async(session_id, messages, DEFAULT_DIRECTORY,
-                                     provider_id, model_id, tools=tools)
+                                     provider_id, model_id, tools=tools,
+                                     session_reused=session_reused)
         if not success:
             send_error({"message": "Failed to send prompt to super-agent"})
             return
@@ -1999,7 +1995,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
 
     def _handle_non_streaming_logged(self, session_id, messages, request_id, created,
                                       provider_id, model_id, log_entry, start_time,
-                                      tools=None):
+                                      tools=None, session_reused=False):
         """非流式响应（带日志），支持 tool call 解析"""
         model_name = f"{provider_id}/{model_id}"
         confirmations = []
@@ -2016,7 +2012,8 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         time.sleep(0.5)
 
         success = send_prompt_async(session_id, messages, DEFAULT_DIRECTORY,
-                                     provider_id, model_id, tools=tools)
+                                     provider_id, model_id, tools=tools,
+                                     session_reused=session_reused)
         if not success:
             self._send_json(500, {"error": {"message": "Failed to send prompt", "type": "server_error"}})
             log_entry["status"] = "error"
