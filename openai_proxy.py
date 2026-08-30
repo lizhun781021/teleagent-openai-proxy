@@ -497,6 +497,23 @@ def send_prompt_async(session_id, messages, directory=DEFAULT_DIRECTORY,
             for part in content:
                 if isinstance(part, dict) and part.get("type") == "text":
                     text_parts.append(part.get("text", ""))
+                elif isinstance(part, dict) and part.get("type") == "image_url":
+                    # 多模态图片：提取 base64 → 存临时文件 → 在 prompt 中插入文件路径
+                    img_url = part.get("image_url", {}).get("url", "") if isinstance(part.get("image_url"), dict) else part.get("image_url", "")
+                    if img_url.startswith("data:image"):
+                        # 解析 data URI: data:image/jpeg;base64,xxxx
+                        try:
+                            header, b64data = img_url.split(",", 1)
+                            img_bytes = base64.b64decode(b64data)
+                            img_path = os.path.join("/tmp/reachy_vision", f"proxy_{int(time.time()*1000)}.jpg")
+                            os.makedirs(os.path.dirname(img_path), exist_ok=True)
+                            with open(img_path, "wb") as f:
+                                f.write(img_bytes)
+                            text_parts.append(f"请用 image_understanding 工具查看图片 {img_path} 并回答问题。")
+                            print(f"[proxy] Multimodal image saved to {img_path} ({len(img_bytes)} bytes)", flush=True)
+                        except Exception as e:
+                            print(f"[proxy] Failed to save multimodal image: {e}", flush=True)
+                            text_parts.append("[图片解析失败]")
             content = "\n".join(text_parts)
         elif not isinstance(content, str):
             content = str(content)
@@ -1720,7 +1737,8 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             return
 
         # 读取自定义会话标题（机器人可传"姓名 | 技能 | 时间"）
-        session_title = req_data.get("session_title") or f"API-{request_id}"
+        # 未传标题时用固定名称，避免每次开一个 API-chatcmpl-xxx 会话
+        session_title = req_data.get("session_title") or "星小辰-子智能体"
 
         # 创建会话（带标题时按标题复用，避免机器人一句话开一个会话）
         session_id, session_reused = get_or_create_session(
@@ -1841,7 +1859,24 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                 clean_text, tool_calls = _parse_tool_calls_from_text(full_text)
 
                 if tool_calls:
-                    # 发送 tool_calls delta
+                    # 先发送 tool_call 前的对话文本（如"好，我看看哦~"）
+                    # _parse_tool_calls_from_text 返回的 clean_text 是去掉 [TOOL_CALL] 标记后的剩余文本
+                    if clean_text and clean_text.strip():
+                        if not first_chunk_sent:
+                            first_chunk = {
+                                "id": request_id, "object": "chat.completion.chunk",
+                                "created": created, "model": model_name,
+                                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]
+                            }
+                            self._send_sse_chunk(first_chunk)
+                            first_chunk_sent = True
+                        content_chunk = {
+                            "id": request_id, "object": "chat.completion.chunk",
+                            "created": created, "model": model_name,
+                            "choices": [{"index": 0, "delta": {"content": clean_text}, "finish_reason": None}]
+                        }
+                        self._send_sse_chunk(content_chunk)
+                    # 然后发送 tool_calls delta
                     if not first_chunk_sent:
                         first_chunk = {
                             "id": request_id, "object": "chat.completion.chunk",
@@ -2085,13 +2120,13 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             clean_text, tool_calls = _parse_tool_calls_from_text(text)
 
         if tool_calls:
-            # 返回 tool_calls 格式
+            # 返回 tool_calls 格式（保留 tool_call 前的对话文本）
             response = {
                 "id": request_id, "object": "chat.completion",
                 "created": created, "model": model_name,
                 "choices": [{"index": 0, "message": {
                     "role": "assistant",
-                    "content": None,
+                    "content": clean_text if clean_text and clean_text.strip() else None,
                     "tool_calls": tool_calls
                 }, "finish_reason": "tool_calls"}],
                 "usage": usage,
