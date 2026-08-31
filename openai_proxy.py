@@ -228,21 +228,65 @@ _CALLER_SOURCE_MAP = {
 _GENERIC_SOURCE_TAGS = {"外部", "子智能体", "脚本", "curl", "Node"}
 
 
+from datetime import datetime as _dt
+
+
+def _now_date_time():
+    """返回当前 (日期, 时间) 字符串，格式 YYYY-MM-DD / HH:MM"""
+    now = _dt.now()
+    return now.strftime("%Y-%m-%d"), now.strftime("%H:%M")
+
+
 def build_source_session_title(source_tag, caller_name, raw_title):
     """构造带来源标识的会话标题，使 TeleAgent 会话名体现调用来源。
 
-    - 原始标题已带来源前缀（企微/QQ/密信等）→ 原样保留，避免重复拼接。
-    - 未传标题 → 以「星小辰-子智能体」为基底。
-    - 其它来源 → 拼接「来源标签[|调用方]|基底」标题，并参与会话复用隔离。
+    标题格式（均按「来源|日期|时间」三段或已有业务标题保留）：
+      - 企微/QQ/密信：原始标题已含渠道前缀 → 原样保留
+      - 机器人(对话)：Reachy Mini对话|日期|时间
+      - 机器人预热：  Reachy Mini预热|日期|时间
+      - 机器人视觉：  Reachy Mini视觉|日期|时间
+      - AI工厂：      AI工厂|日期|时间
+      - 脚本：        脚本|调用进程|日期|时间
+      - curl：        curl|日期|时间
+      - 子智能体/Node/面板测试：原样保留
     """
     base = raw_title or "星小辰-子智能体"
-    # 标题已带来源前缀则直接返回
-    for p in _SOURCE_PREFIXES:
+
+    # ---- 企微/QQ/密信：原始标题已含渠道前缀，原样保留 ----
+    for p in ("企微", "QQ", "密信"):
         if base == p or base.startswith(p + "|") or base.startswith(p + ":") or base.startswith(p + "："):
             return base
+
+    # ---- Reachy Mini 对话：s2s 传入「星小辰机器人|时间」，改写为三段 ----
+    if "星小辰机器人" in base or source_tag == "机器人":
+        date_str, time_str = _now_date_time()
+        return f"Reachy Mini对话|{date_str}|{time_str}"
+
+    # ---- 其余自动拼接来源 ----
     if not source_tag:
         return base
-    # 调用方可增强来源粒度（脚本/curl 等按进程细分）；与来源标签相同则省略，避免冗余
+
+    # 来源标签 → 第一段显示名
+    DISPLAY = {
+        "机器人预热": "Reachy Mini预热",
+        "机器人视觉": "Reachy Mini视觉",
+        "AI工厂":    "AI工厂",
+    }
+    first = DISPLAY.get(source_tag, source_tag)
+
+    # 需要用日期+时间格式的来源标签
+    _DT_SOURCES = {"机器人预热", "机器人视觉", "AI工厂", "脚本", "curl", "Node"}
+
+    date_str, time_str = _now_date_time()
+    dt_suffix = f"{date_str}|{time_str}"
+
+    # 预热/视觉/AI工厂/脚本/curl/Node：统一用「显示名[|调用方]|日期|时间」
+    if source_tag in _DT_SOURCES:
+        if source_tag in ("脚本", "curl", "Node") and caller_name and caller_name not in ("未知", "未知进程", "8088代理自身") and caller_name != source_tag:
+            return f"{first}|{caller_name}|{dt_suffix}"
+        return f"{first}|{dt_suffix}"
+
+    # 子智能体/面板测试/外部等：保留原基底拼接方式
     caller = ""
     if caller_name and caller_name not in ("未知", "未知进程", "8088代理自身") and caller_name != source_tag:
         caller = "|" + caller_name

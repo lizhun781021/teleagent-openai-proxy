@@ -3,16 +3,30 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '87616953-c5b5-4e3d-b457-5ffe45bda19c'
-  PropagateID: '87616953-c5b5-4e3d-b457-5ffe45bda19c'
-  ReservedCode1: '5143cc16-7eec-4865-8ee9-4afce05e3009'
-  ReservedCode2: '5143cc16-7eec-4865-8ee9-4afce05e3009'
+  ProduceID: 'cf9cc229-ac3f-491f-8d15-b813a0fc9b92'
+  PropagateID: 'cf9cc229-ac3f-491f-8d15-b813a0fc9b92'
+  ReservedCode1: '4debb57a-1276-45cf-a2f8-aaad39c26196'
+  ReservedCode2: '4debb57a-1276-45cf-a2f8-aaad39c26196'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.9.6] - 2026-08-31
+
+### 变更
+
+- **会话标题格式调整**：按准哥要求统一为「来源|日期|时间」三段格式
+  - Reachy Mini 对话：`Reachy Mini对话|2026-08-31|19:46`
+  - Reachy Mini 预热：`Reachy Mini预热|2026-08-31|19:46`（原 `机器人预热|Reachy Mini|星小辰-子智能体`）
+  - Reachy Mini 视觉：`Reachy Mini视觉|2026-08-31|19:46`（原 `机器人视觉|星小辰-子智能体`）
+  - AI工厂：`AI工厂|2026-08-31|19:46`（原 `AI工厂|星小辰-子智能体`，第二段去掉基底换日期+时间）
+  - 脚本：`脚本|Python脚本|2026-08-31|19:46`（原末段 `星小辰-子智能体` 换为日期+时间）
+  - curl：`curl|2026-08-31|19:46`（原末段 `星小辰-子智能体` 换为日期+时间）
+  - 企微/QQ/密信：保留原始业务标题不变
+  - 子智能体/面板测试：保留原基底拼接方式不变
 
 ## [1.9.5] - 2026-08-31
 
