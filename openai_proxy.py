@@ -223,7 +223,7 @@ def identify_caller_process(client_ip, client_port):
         # lsof -i :8088 查出所有连接到 8088 的进程（含客户端和服务端行）
         result = subprocess.run(
             ["lsof", "-i", f":{8088}", "-n", "-P"],
-            capture_output=True, text=True, timeout=3
+            capture_output=True, text=True, timeout=3, errors="replace"
         )
         if result.returncode == 0 and result.stdout:
             # 解析标准 lsof 输出格式：
@@ -262,7 +262,7 @@ def identify_caller_process(client_ip, client_port):
                             try:
                                 ps_result = subprocess.run(
                                     ["ps", "-p", proc_pid, "-o", "command="],
-                                    capture_output=True, text=True, timeout=2
+                                    capture_output=True, text=True, timeout=2, errors="replace"
                                 )
                                 if ps_result.returncode == 0:
                                     cmd = ps_result.stdout.strip()
@@ -273,7 +273,7 @@ def identify_caller_process(client_ip, client_port):
                             try:
                                 lsof_cwd = subprocess.run(
                                     ["lsof", "-p", proc_pid, "-a", "-d", "cwd", "-Fn"],
-                                    capture_output=True, text=True, timeout=2
+                                    capture_output=True, text=True, timeout=2, errors="replace"
                                 )
                                 if lsof_cwd.returncode == 0:
                                     for cl in lsof_cwd.stdout.strip().split("\n"):
@@ -284,6 +284,15 @@ def identify_caller_process(client_ip, client_port):
                                 pass
                             name = _friendly_caller_name(int(pid) if pid.isdigit() else 0, cmd, cwd)
                             break
+
+        # ---- 万达云代理穿透 ----
+        # 当 lsof 抓到的 caller 是万达云（wandacloud / 万达云），说明请求经系统代理转发，
+        # 真正的调用方在 7892 端口侧。反查 7892 上的 TeleAgent / super-agent 进程。
+        _is_wanda = "wanda" in (cmd or "").lower() or "万达" in (cmd or "") or "万达" in name or "wanda" in name.lower()
+        if name in ("未知", "") or _is_wanda:
+            penetrated = _penetrate_wandacloud_proxy()
+            if penetrated:
+                name, pid, cmd = penetrated
     except Exception:
         pass
 
@@ -291,6 +300,103 @@ def identify_caller_process(client_ip, client_port):
         _caller_name_cache[cache_key] = {"name": name, "pid": pid, "cmd": cmd, "time": now}
 
     return name, pid, cmd
+
+
+def _penetrate_wandacloud_proxy():
+    """当 caller 是万达云代理时，反查 7892 端口上的真实调用进程。
+
+    万达云（wandacloud）监听 7892，TeleAgent 的 Electron/Chromium 和 super-agent
+    通过 7892 发出请求，万达云再转发到 127.0.0.1:8088。lsof -i :8088 只能看到万达云，
+    所以需要查 lsof -i :7892 找到 TeleAgent 侧的 ESTABLISHED 连接。
+
+    返回 (friendly_name, pid, cmd) 或 None。
+    """
+    try:
+        result = subprocess.run(
+            ["lsof", "-i", ":7892", "-n", "-P"],
+            capture_output=True, text=True, timeout=3, errors="replace"
+        )
+        if result.returncode != 0 or not result.stdout:
+            return None
+
+        lines = result.stdout.strip().split("\n")
+        candidates = []  # [(pid, cmd, cwd, score)]，score 越高优先级越高
+
+        for line in lines[1:]:  # 跳过表头
+            parts = line.split()
+            if len(parts) < 9:
+                continue
+            proc_cmd = parts[0]
+            proc_pid = parts[1]
+            name_field = parts[8]
+
+            # 只要 ESTABLISHED 连接，跳过 LISTEN/CLOSE_WAIT/FIN_WAIT 等
+            # 注意：(ESTABLISHED) 在 parts[9]，不在 parts[8]
+            if "LISTEN" in line or "ESTABLISHED" not in line:
+                continue
+            # 跳过万达云自身（支持中英文进程名）
+            if "wanda" in proc_cmd.lower() or "万达" in proc_cmd:
+                continue
+
+            # 获取完整命令行
+            full_cmd = proc_cmd
+            try:
+                ps_result = subprocess.run(
+                    ["ps", "-p", proc_pid, "-o", "command="],
+                    capture_output=True, text=True, timeout=2, errors="replace"
+                )
+                if ps_result.returncode == 0:
+                    full_cmd = ps_result.stdout.strip()
+            except Exception:
+                pass
+
+            # 获取 cwd
+            cwd = ""
+            try:
+                lsof_cwd = subprocess.run(
+                    ["lsof", "-p", proc_pid, "-a", "-d", "cwd", "-Fn"],
+                    capture_output=True, text=True, timeout=2, errors="replace"
+                )
+                if lsof_cwd.returncode == 0:
+                    for cl in lsof_cwd.stdout.strip().split("\n"):
+                        if cl.startswith("n"):
+                            cwd = cl[1:]
+                            break
+            except Exception:
+                pass
+
+            friendly = _friendly_caller_name(int(proc_pid) if proc_pid.isdigit() else 0, full_cmd, cwd)
+            # 排除未知 / 万达云自身 / 8088代理自身
+            if friendly in ("未知", "8088代理自身") or "wanda" in full_cmd.lower() or "万达" in full_cmd:
+                continue
+
+            # 优先级评分：TeleAgent 主程序 > super-agent > 其他
+            score = 0
+            cmd_lower = full_cmd.lower()
+            if "super-agent" in cmd_lower:
+                score = 100  # super-agent 是 AI 推理调度，最可能是真正发 LLM 请求的
+            elif "teleagent" in cmd_lower or "opencowork" in cmd_lower:
+                score = 90
+            elif "electron" in cmd_lower or "helper" in cmd_lower:
+                score = 70  # Electron Helper / Network Service
+            elif "wecom" in cmd_lower:
+                score = 60
+            elif "qq" in cmd_lower or "zmx" in cmd_lower:
+                score = 50
+            else:
+                score = 30
+
+            candidates.append((proc_pid, full_cmd, friendly, score))
+
+        if not candidates:
+            return None
+
+        # 取得分最高的候选
+        candidates.sort(key=lambda x: x[3], reverse=True)
+        best_pid, best_cmd, best_name, _ = candidates[0]
+        return best_name, best_pid, best_cmd
+    except Exception:
+        return None
 
 
 def get_recent_logs(limit=50):

@@ -3,16 +3,33 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '5daed018-40eb-4171-8c60-f50f9c302fa8'
-  PropagateID: '5daed018-40eb-4171-8c60-f50f9c302fa8'
-  ReservedCode1: '8bf66a39-394b-4706-b987-33d726ddeab1'
-  ReservedCode2: '8bf66a39-394b-4706-b987-33d726ddeab1'
+  ProduceID: 'd6b2da73-922a-4e91-b41c-f00c4c100f46'
+  PropagateID: 'd6b2da73-922a-4e91-b41c-f00c4c100f46'
+  ReservedCode1: '35d3e640-3c32-4c39-b44d-f088d1dbfc98'
+  ReservedCode2: '35d3e640-3c32-4c39-b44d-f088d1dbfc98'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.9.3] - 2026-08-31
+
+### 新增
+
+- **万达云代理穿透**：当 lsof 识别到调用方是万达云（wandacloud）时，自动反查 7892 端口上的真实调用进程
+  - 万达云作为系统代理（127.0.0.1:7892）转发 TeleAgent 的请求到 8088，导致 lsof 只能看到万达云而非真正的调用方
+  - 新增 `_penetrate_wandacloud_proxy()` 函数：查 `lsof -i :7892` 找 ESTABLISHED 连接，排除万达云自身，按优先级评分（super-agent > TeleAgent > Electron Helper > wecom-bot > QQ/密信 > 其他）返回最高分候选
+  - 穿透逻辑集成在 `identify_caller_process()` 末尾：当识别到万达云或未知进程时自动触发
+  - 控制台"调用进程"列将显示 TeleAgent 主程序 / super-agent 等真实进程名，而非万达云
+
+### 修复
+
+- 删除 `_handle_chat_completions` 中的 DEBUG-HEADERS 临时调试日志
+- 修复 `subprocess.run` 因非 UTF-8 进程名（如 `QQ\x20Hel`）导致 UnicodeDecodeError 的问题：所有 lsof/ps 调用添加 `errors='replace'`
+- 修复 `_penetrate_wandacloud_proxy` 中 ESTABLISHED 状态检查错误：`(ESTABLISHED)` 标记在 lsof 输出的 `parts[9]` 而非 `parts[8]`，改为检查整行
+- 修复万达云进程名中英文匹配：万达云 app 的进程名为中文"万达云"而非英文"wandacloud"，穿透条件和排除条件同时支持中英文
 
 ## [1.9.2] - 2026-08-31
 
