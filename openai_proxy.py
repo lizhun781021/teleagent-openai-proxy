@@ -206,6 +206,33 @@ def _friendly_caller_name(pid, cmd, cwd):
     return "未知进程"
 
 
+# ============================================================
+# 来源标题：把调用来源溯源体现到 TeleAgent 会话标题
+# ============================================================
+_SOURCE_PREFIXES = ("企微", "QQ", "密信", "机器人预热", "子智能体", "脚本", "curl", "Node", "面板测试")
+
+
+def build_source_session_title(source_tag, caller_name, raw_title):
+    """构造带来源标识的会话标题，使 TeleAgent 会话名体现调用来源。
+
+    - 原始标题已带来源前缀（企微/QQ/密信等）→ 原样保留，避免重复拼接。
+    - 未传标题 → 以「星小辰-子智能体」为基底。
+    - 其它来源 → 拼接「来源标签[|调用方]|基底」标题，并参与会话复用隔离。
+    """
+    base = raw_title or "星小辰-子智能体"
+    # 标题已带来源前缀则直接返回
+    for p in _SOURCE_PREFIXES:
+        if base == p or base.startswith(p + "|") or base.startswith(p + ":") or base.startswith(p + "："):
+            return base
+    if not source_tag:
+        return base
+    # 调用方可增强来源粒度（脚本/curl 等按进程细分）；与来源标签相同则省略，避免冗余
+    caller = ""
+    if caller_name and caller_name not in ("未知", "未知进程", "8088代理自身") and caller_name != source_tag:
+        caller = "|" + caller_name
+    return f"{source_tag}{caller}|{base}"
+
+
 def identify_caller_process(client_ip, client_port):
     """通过 lsof 反查连接 8088 的客户端进程，返回友好名称和 PID"""
     cache_key = (client_ip, client_port)
@@ -2049,28 +2076,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": {"message": "messages is required", "type": "invalid_request"}})
             return
 
-        # 读取自定义会话标题（机器人可传"姓名 | 技能 | 时间"）
-        # 未传标题时用固定名称，避免每次开一个 API-chatcmpl-xxx 会话
-        session_title = req_data.get("session_title") or "星小辰-子智能体"
-
-        # 创建会话（带标题时按标题复用，避免机器人一句话开一个会话）
-        session_id, session_reused = get_or_create_session(
-            directory=DEFAULT_DIRECTORY, title=session_title
-        )
-        if not session_id:
-            self._send_json(500, {"error": {"message": "Failed to create session", "type": "server_error"}})
-            return
-
-        # 登记 session_id -> session_title 映射（供确认事件关联机器人侧会话）
-        with _session_title_map_lock:
-            _session_title_map[session_id] = session_title
-            # 防止无限增长，只保留最近 200 条
-            if len(_session_title_map) > 200:
-                oldest_keys = list(_session_title_map.keys())[:len(_session_title_map) - 200]
-                for k in oldest_keys:
-                    _session_title_map.pop(k, None)
-
-        # 提取 prompt 摘要用于日志
+        # ===== 提取 prompt 摘要用于来源判定与日志 =====
         prompt_preview = ""
         if messages:
             last_user = None
@@ -2088,34 +2094,36 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         client_ip = self.client_address[0] if self.client_address else "unknown"
         client_port = self.client_address[1] if self.client_address else 0
         user_agent = self.headers.get("User-Agent", "")
+        # 读取自定义会话标题（机器人可传"姓名 | 技能 | 时间"）
+        raw_session_title = req_data.get("session_title") or "星小辰-子智能体"
         # 识别业务渠道来源：企微/QQ/量子密信/面板测试/TeleAgent主程序/外部脚本/机器人预热
         source_tag = "外部"
         source_detail = ""
-        # Reachy Mini warmup 检测：OpenAI Python SDK + prompt 为 "Hello" + 无 session_title 或默认标题
+        # Reachy Mini warmup 判定：OpenAI Python SDK + prompt 为 "Hello" + 无 session_title 或默认标题
         is_warmup = (
             prompt_preview.strip().lower() == "hello"
             and "openai" in user_agent.lower()
-            and (not session_title or session_title == "星小辰-子智能体")
+            and (not req_data.get("session_title") or req_data.get("session_title") == "星小辰-子智能体")
         )
         if is_warmup:
             source_tag = "机器人预热"
             source_detail = "Reachy Mini s2s warmup"
-        elif session_title:
-            st_lower = session_title.lower()
+        elif raw_session_title:
+            st_lower = raw_session_title.lower()
             if st_lower.startswith("企微") or "wecom" in st_lower:
                 source_tag = "企微"
-                source_detail = session_title
+                source_detail = raw_session_title
             elif st_lower.startswith("qq") or st_lower.startswith("qq|"):
                 source_tag = "QQ"
-                source_detail = session_title
+                source_detail = raw_session_title
             elif st_lower.startswith("密信") or "zmx" in st_lower:
                 source_tag = "密信"
-                source_detail = session_title
+                source_detail = raw_session_title
             elif st_lower.startswith("console-test") or st_lower == "星小辰-子智能体":
                 source_tag = "子智能体"
-                source_detail = session_title
+                source_detail = raw_session_title
         if not source_detail:
-            source_detail = session_title or ""
+            source_detail = raw_session_title or ""
         # User-Agent 辅助识别
         if not is_warmup:  # warmup 已标注，跳过 UA 辅助识别
             if "python-requests" in user_agent.lower() or "python-urllib" in user_agent.lower():
@@ -2130,6 +2138,28 @@ class OpenAIHandler(BaseHTTPRequestHandler):
 
         # ===== lsof 反查调用进程 =====
         caller_name, caller_pid, caller_cmd = identify_caller_process(client_ip, client_port)
+
+        # ===== 构造带来源前缀的会话标题 =====
+        # 未传标题时来源前缀（脚本/curl/预热/子智能体）直接体现到会话名；
+        # 原始标题已含来源（企微/QQ/密信等）则原样保留。
+        session_title = build_source_session_title(source_tag, caller_name, raw_session_title)
+
+        # 创建会话（带标题时按标题复用，避免机器人一句话开一个会话）
+        session_id, session_reused = get_or_create_session(
+            directory=DEFAULT_DIRECTORY, title=session_title
+        )
+        if not session_id:
+            self._send_json(500, {"error": {"message": "Failed to create session", "type": "server_error"}})
+            return
+
+        # 登记 session_id -> session_title 映射（供确认事件关联机器人侧会话）
+        with _session_title_map_lock:
+            _session_title_map[session_id] = session_title
+            # 防止无限增长，只保留最近 200 条
+            if len(_session_title_map) > 200:
+                oldest_keys = list(_session_title_map.keys())[:len(_session_title_map) - 200]
+                for k in oldest_keys:
+                    _session_title_map.pop(k, None)
 
         # 记录请求开始
         log_entry = {

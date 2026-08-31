@@ -3,16 +3,26 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '0f2cdad6-fbdf-45df-a84e-f487d3dd1e99'
-  PropagateID: '0f2cdad6-fbdf-45df-a84e-f487d3dd1e99'
-  ReservedCode1: 'a1583f67-513d-4024-8429-456576801d4d'
-  ReservedCode2: 'a1583f67-513d-4024-8429-456576801d4d'
+  ProduceID: 'aa90364e-dcc9-4386-bd84-bae2499ee614'
+  PropagateID: 'aa90364e-dcc9-4386-bd84-bae2499ee614'
+  ReservedCode1: '48cfa870-49cd-4f8a-917c-de69af1f014d'
+  ReservedCode2: '48cfa870-49cd-4f8a-917c-de69af1f014d'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.9.5] - 2026-08-31
+
+### 新增
+
+- **来源溯源体现到会话标题**：所有会话标题统一带来源标识，TeleAgent 会话名一眼可辨调用来源
+  - 未传 `session_title` 时，自动按识别来源 + 调用进程拼接前缀，例如 `脚本|Python脚本|星小辰-子智能体`、`curl|星小辰-子智能体`、`机器人预热|Reachy Mini|星小辰-子智能体`、`子智能体|TeleAgent主程序|星小辰-子智能体`
+  - 原始标题已带来源前缀（企微/QQ/密信等）时原样保留，避免重复拼接，不影响机器人按标题复用会话
+  - 来源标签与调用方进程名相同时自动去重（如 `curl|星小辰-子智能体` 而非 `curl|curl|星小辰-子智能体`）
+  - 新增 `build_source_session_title()` 函数，将来源识别逻辑（来源标签 + caller 进程名）前置到会话创建之前，与日志/面板的 source、caller 字段保持一致
 
 ## [1.9.4] - 2026-08-31
 
