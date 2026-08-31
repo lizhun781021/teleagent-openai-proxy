@@ -3,16 +3,27 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'd6b2da73-922a-4e91-b41c-f00c4c100f46'
-  PropagateID: 'd6b2da73-922a-4e91-b41c-f00c4c100f46'
-  ReservedCode1: '35d3e640-3c32-4c39-b44d-f088d1dbfc98'
-  ReservedCode2: '35d3e640-3c32-4c39-b44d-f088d1dbfc98'
+  ProduceID: '0f2cdad6-fbdf-45df-a84e-f487d3dd1e99'
+  PropagateID: '0f2cdad6-fbdf-45df-a84e-f487d3dd1e99'
+  ReservedCode1: 'a1583f67-513d-4024-8429-456576801d4d'
+  ReservedCode2: 'a1583f67-513d-4024-8429-456576801d4d'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.9.4] - 2026-08-31
+
+### 新增
+
+- **Reachy Mini warmup 请求识别**：自动识别机器人 s2s 服务的预热请求并标注来源
+  - 排查结论：Reachy Mini 的 speech-to-speech 服务每次启动/重启时，`ChatCompletionsApiModelHandler.warmup()` 会自动向 8088 发一条 `{"role":"user","content":"Hello"}` 请求预热 LLM 连接
+  - 代码源头：`~/.config/TeleAgent/skills/reachy-mini-voice/patches/chat_completions_language_model.py` 第 271-282 行
+  - 识别规则：prompt 为 "Hello" + User-Agent 含 "openai" + 无自定义 session_title（代理默认为"星小辰-子智能体"）
+  - 日志中 source 显示为"机器人预热"，source_detail 显示"Reachy Mini s2s warmup"
+  - 控制台日志页来源列将显示"机器人预热"标签，便于区分正常用户消息和机器人预热请求
 
 ## [1.9.3] - 2026-08-31
 

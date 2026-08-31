@@ -2088,10 +2088,19 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         client_ip = self.client_address[0] if self.client_address else "unknown"
         client_port = self.client_address[1] if self.client_address else 0
         user_agent = self.headers.get("User-Agent", "")
-        # 识别业务渠道来源：企微/QQ/量子密信/面板测试/TeleAgent主程序/外部脚本
+        # 识别业务渠道来源：企微/QQ/量子密信/面板测试/TeleAgent主程序/外部脚本/机器人预热
         source_tag = "外部"
         source_detail = ""
-        if session_title:
+        # Reachy Mini warmup 检测：OpenAI Python SDK + prompt 为 "Hello" + 无 session_title 或默认标题
+        is_warmup = (
+            prompt_preview.strip().lower() == "hello"
+            and "openai" in user_agent.lower()
+            and (not session_title or session_title == "星小辰-子智能体")
+        )
+        if is_warmup:
+            source_tag = "机器人预热"
+            source_detail = "Reachy Mini s2s warmup"
+        elif session_title:
             st_lower = session_title.lower()
             if st_lower.startswith("企微") or "wecom" in st_lower:
                 source_tag = "企微"
@@ -2108,15 +2117,16 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         if not source_detail:
             source_detail = session_title or ""
         # User-Agent 辅助识别
-        if "python-requests" in user_agent.lower() or "python-urllib" in user_agent.lower():
-            if source_tag == "外部":
-                source_tag = "脚本"
-        elif "curl" in user_agent.lower():
-            if source_tag == "外部":
-                source_tag = "curl"
-        elif "node" in user_agent.lower() or "axios" in user_agent.lower():
-            if source_tag == "外部":
-                source_tag = "Node"
+        if not is_warmup:  # warmup 已标注，跳过 UA 辅助识别
+            if "python-requests" in user_agent.lower() or "python-urllib" in user_agent.lower():
+                if source_tag == "外部":
+                    source_tag = "脚本"
+            elif "curl" in user_agent.lower():
+                if source_tag == "外部":
+                    source_tag = "curl"
+            elif "node" in user_agent.lower() or "axios" in user_agent.lower():
+                if source_tag == "外部":
+                    source_tag = "Node"
 
         # ===== lsof 反查调用进程 =====
         caller_name, caller_pid, caller_cmd = identify_caller_process(client_ip, client_port)
