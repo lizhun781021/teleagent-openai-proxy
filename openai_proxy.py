@@ -209,7 +209,23 @@ def _friendly_caller_name(pid, cmd, cwd):
 # ============================================================
 # 来源标题：把调用来源溯源体现到 TeleAgent 会话标题
 # ============================================================
-_SOURCE_PREFIXES = ("企微", "QQ", "密信", "机器人预热", "子智能体", "脚本", "curl", "Node", "面板测试")
+_SOURCE_PREFIXES = ("企微", "QQ", "密信", "机器人预热", "机器人视觉", "机器人", "星小辰机器人", "AI工厂", "子智能体", "脚本", "curl", "Node", "面板测试")
+
+# 调用进程名 → 来源标签映射（当 session_title/UA 无法精确判定来源时，用 caller 反哺）
+# 仅当 source_tag 仍为泛化标签（外部/子智能体/脚本/curl/Node）时才覆盖，避免误覆盖企微/QQ/密信
+_CALLER_SOURCE_MAP = {
+    "Reachy Mini": "机器人",
+    "机器人视觉": "机器人视觉",
+    "AI工厂": "AI工厂",
+    "wecom-bot": "企微",
+    "QQ适配器": "QQ",
+    "量子密信适配器": "密信",
+    "TeleAgent主程序": "子智能体",
+    "面板测试": "面板测试",
+}
+
+# 会被 caller 反哺覆盖的泛化标签（精确渠道标签不会被覆盖）
+_GENERIC_SOURCE_TAGS = {"外部", "子智能体", "脚本", "curl", "Node"}
 
 
 def build_source_session_title(source_tag, caller_name, raw_title):
@@ -397,19 +413,29 @@ def _penetrate_wandacloud_proxy():
             if friendly in ("未知", "8088代理自身") or "wanda" in full_cmd.lower() or "万达" in full_cmd:
                 continue
 
-            # 优先级评分：TeleAgent 主程序 > super-agent > 其他
+            # 优先级评分：
+            #   第一梯队（直接调 8088 的应用）: s2s/AI工厂/wecom-bot/QQ/密信 → 90+
+            #   第二梯队（TeleAgent 自身体系）: super-agent → 80, TeleAgent主程序 → 70
+            #   第三梯队（Electron Helper 等框架进程）: → 60
+            #   其他 → 30
+            # 原则：具体应用进程优先于 TeleAgent 框架进程，
+            #       因为 TeleAgent 的长连接只是保活，不是真正发 LLM 请求的
             score = 0
             cmd_lower = full_cmd.lower()
-            if "super-agent" in cmd_lower:
-                score = 100  # super-agent 是 AI 推理调度，最可能是真正发 LLM 请求的
+            if "speech-to-speech" in cmd_lower or "s2s" in cmd_lower or "reachy" in cmd_lower:
+                score = 110  # Reachy Mini 语音对话，最可能是直接调 8088 的
+            elif "ai_factory" in cmd_lower or "ai-factory" in cmd_lower or "streamlit" in cmd_lower:
+                score = 105  # 本地 AI 工厂
+            elif "super-agent" in cmd_lower:
+                score = 100  # super-agent 是 AI 推理调度
             elif "teleagent" in cmd_lower or "opencowork" in cmd_lower:
-                score = 90
+                score = 70   # TeleAgent 主程序（长连接保活，优先级降低）
             elif "electron" in cmd_lower or "helper" in cmd_lower:
-                score = 70  # Electron Helper / Network Service
+                score = 60  # Electron Helper / Network Service
             elif "wecom" in cmd_lower:
-                score = 60
+                score = 95  # 企微机器人
             elif "qq" in cmd_lower or "zmx" in cmd_lower:
-                score = 50
+                score = 95  # QQ/密信适配器
             else:
                 score = 30
 
@@ -2119,6 +2145,9 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             elif st_lower.startswith("密信") or "zmx" in st_lower:
                 source_tag = "密信"
                 source_detail = raw_session_title
+            elif "星小辰机器人" in raw_session_title or "机器人" in raw_session_title:
+                source_tag = "机器人"
+                source_detail = raw_session_title
             elif st_lower.startswith("console-test") or st_lower == "星小辰-子智能体":
                 source_tag = "子智能体"
                 source_detail = raw_session_title
@@ -2138,6 +2167,17 @@ class OpenAIHandler(BaseHTTPRequestHandler):
 
         # ===== lsof 反查调用进程 =====
         caller_name, caller_pid, caller_cmd = identify_caller_process(client_ip, client_port)
+
+        # ===== caller 反哺来源标签 =====
+        # 当 source_tag 是泛化标签时，用 lsof 识别到的进程名精确到具体来源
+        # （Reachy Mini → 机器人、AI工厂 → AI工厂 等），同时补全 source_detail
+        if source_tag in _GENERIC_SOURCE_TAGS and caller_name in _CALLER_SOURCE_MAP:
+            refined = _CALLER_SOURCE_MAP[caller_name]
+            # 机器人预热是更细粒度，保留不被覆盖
+            if not (source_tag == "机器人预热" and refined == "机器人"):
+                source_tag = refined
+                if not source_detail or source_detail == raw_session_title:
+                    source_detail = caller_name
 
         # ===== 构造带来源前缀的会话标题 =====
         # 未传标题时来源前缀（脚本/curl/预热/子智能体）直接体现到会话名；

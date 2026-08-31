@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'aa90364e-dcc9-4386-bd84-bae2499ee614'
-  PropagateID: 'aa90364e-dcc9-4386-bd84-bae2499ee614'
-  ReservedCode1: '48cfa870-49cd-4f8a-917c-de69af1f014d'
-  ReservedCode2: '48cfa870-49cd-4f8a-917c-de69af1f014d'
+  ProduceID: '87616953-c5b5-4e3d-b457-5ffe45bda19c'
+  PropagateID: '87616953-c5b5-4e3d-b457-5ffe45bda19c'
+  ReservedCode1: '5143cc16-7eec-4865-8ee9-4afce05e3009'
+  ReservedCode2: '5143cc16-7eec-4865-8ee9-4afce05e3009'
 ---
 
 # Changelog
@@ -23,6 +23,15 @@ AIGC:
   - 原始标题已带来源前缀（企微/QQ/密信等）时原样保留，避免重复拼接，不影响机器人按标题复用会话
   - 来源标签与调用方进程名相同时自动去重（如 `curl|星小辰-子智能体` 而非 `curl|curl|星小辰-子智能体`）
   - 新增 `build_source_session_title()` 函数，将来源识别逻辑（来源标签 + caller 进程名）前置到会话创建之前，与日志/面板的 source、caller 字段保持一致
+- **caller 反哺来源标签**：当 session_title/UA 无法精确判定来源时，用 lsof 识别到的进程名反哺 source_tag
+  - 新增 `_CALLER_SOURCE_MAP` 映射：Reachy Mini → 机器人、AI工厂 → AI工厂、机器人视觉 → 机器人视觉、wecom-bot → 企微、QQ适配器 → QQ、量子密信适配器 → 密信
+  - 仅当 source_tag 是泛化标签（外部/子智能体/脚本/curl/Node）时才覆盖，避免误覆盖企微/QQ/密信等精确渠道
+- **机器人标题识别**：识别 `星小辰机器人|时间` 格式的 session_title（Reachy Mini s2s 正常对话传入）为"机器人"来源
+  - `星小辰机器人` 加入 `_SOURCE_PREFIXES`，避免在标题前重复拼接"机器人|"前缀
+- **穿透评分调整**：万达云代理穿透时，应用进程（s2s/AI工厂/wecom-bot/QQ/密信）优先级高于 TeleAgent 框架进程
+  - 原因：TeleAgent 主程序在 7892 上有持久 WebSocket 长连接（保活），并非每次发 8088 请求的进程
+  - 新评分：s2s/Reachy Mini → 110、AI工厂 → 105、super-agent → 100、TeleAgent主程序 → 70（原 90 降低）
+  - wecom-bot/QQ/密信适配器 → 95（原 60/50 提升）
 
 ## [1.9.4] - 2026-08-31
 
