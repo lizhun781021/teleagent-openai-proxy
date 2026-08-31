@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '29e4ac1e-4621-4d31-87b6-e8ebf2080501'
-  PropagateID: '29e4ac1e-4621-4d31-87b6-e8ebf2080501'
-  ReservedCode1: '33dd053f-894b-4a6c-b438-0dc13bbdb8fd'
-  ReservedCode2: '33dd053f-894b-4a6c-b438-0dc13bbdb8fd'
+  ProduceID: '063a3b93-4e71-4ffd-85df-ba125020a89d'
+  PropagateID: '063a3b93-4e71-4ffd-85df-ba125020a89d'
+  ReservedCode1: '4a344694-8de9-4c33-a429-f75bbe033fbe'
+  ReservedCode2: '4a344694-8de9-4c33-a429-f75bbe033fbe'
 ---
 
 # Changelog
@@ -22,6 +22,9 @@ AIGC:
   - 根因：`_GENERIC_SOURCE_TAGS` 包含了 `curl`/`脚本`/`Node`，万达云代理拦截后 lsof 只看到 TeleAgent主程序/万达云进程，将正确来源覆盖为「子智能体」
   - 修复：`_GENERIC_SOURCE_TAGS` 仅保留 `外部`/`子智能体`；UA 识别的标签不再参与 caller 反哺
   - 验证：curl 不传 session_title → source="curl"，标题 `curl|2026-08-31|20:00`（修复前为 `子智能体|TeleAgent主程序|星小辰-子智能体`）
+- **面板日志显示旧记录**：`/api/logs` 返回 `disk_logs[-limit:]`，在按时间倒序的列表上取到的是**最旧**的 limit 条，导致面板看不到最新请求
+  - 修复：改为 `[:limit]` 取最新记录；`date=YYYY-MM-DD` 参数同理
+  - 验证：重启后面板返回的最新 3 条为 Reachy Mini 对话 07:54/07:53/07:52（修复前为最早 15 条旧记录）
 
 ## [1.9.6] - 2026-08-31
 

@@ -1790,10 +1790,10 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         disk_logs = read_disk_logs(date=date_arg)
         # 磁盘日志已含当天全部请求（含内存中的），若指定了 date 则直接返回磁盘日志
         if date_arg:
-            self._send_json(200, {"logs": disk_logs[-limit:], "total": len(disk_logs)})
+            self._send_json(200, {"logs": disk_logs[:limit], "total": len(disk_logs)})
             return
         # 未指定 date：合并内存日志与当天磁盘日志（磁盘为准，避免重复）
-        self._send_json(200, {"logs": disk_logs[-limit:] if disk_logs else logs, "total": len(disk_logs or logs)})
+        self._send_json(200, {"logs": disk_logs[:limit] if disk_logs else logs, "total": len(disk_logs or logs)})
 
     def _handle_api_sessions(self):
         status, resp, _ = sa_request("GET", "/session?limit=20", timeout=10)
