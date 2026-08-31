@@ -3,16 +3,26 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '12559d72-8a69-48a3-b752-79d255020b82'
-  PropagateID: '12559d72-8a69-48a3-b752-79d255020b82'
-  ReservedCode1: 'cd17562b-277d-4ead-b8ed-6b310832664b'
-  ReservedCode2: 'cd17562b-277d-4ead-b8ed-6b310832664b'
+  ProduceID: 'e73d1174-5542-4538-86e0-a8c0d14783ec'
+  PropagateID: 'e73d1174-5542-4538-86e0-a8c0d14783ec'
+  ReservedCode1: '72f179fd-5d2e-42cc-8ba5-8d65b37455f8'
+  ReservedCode2: '72f179fd-5d2e-42cc-8ba5-8d65b37455f8'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.9.0] - 2026-08-31
+
+### 新增
+
+- **请求来源追踪**：日志记录和面板新增"来源"标识，一眼看出谁调的代理
+  - 自动识别 6 种来源：企微、QQ、密信、子智能体、脚本/curl/Node、外部
+  - 识别依据：session_title 前缀（企微/QQ/密信）+ User-Agent（python-requests/curl/node）
+  - 日志条目新增字段：`source`（来源标签）、`source_detail`（会话标题）、`client_ip`（调用方IP）、`user_agent`
+  - 控制台日志表格新增"来源"列，鼠标悬停显示会话标题和IP
 
 ## [1.8.1] - 2026-08-29
 

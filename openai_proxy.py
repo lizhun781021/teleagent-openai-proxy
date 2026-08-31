@@ -1771,6 +1771,39 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                     break
             prompt_preview = (last_user or "")[:100]
 
+        # ===== 提取请求来源信息 =====
+        client_ip = self.client_address[0] if self.client_address else "unknown"
+        user_agent = self.headers.get("User-Agent", "")
+        # 识别调用来源：企微/QQ/量子密信/面板测试/TeleAgent主程序/外部脚本
+        source_tag = "外部"
+        source_detail = ""
+        if session_title:
+            st_lower = session_title.lower()
+            if st_lower.startswith("企微") or "wecom" in st_lower:
+                source_tag = "企微"
+                source_detail = session_title
+            elif st_lower.startswith("qq") or st_lower.startswith("qq|"):
+                source_tag = "QQ"
+                source_detail = session_title
+            elif st_lower.startswith("密信") or "zmx" in st_lower:
+                source_tag = "密信"
+                source_detail = session_title
+            elif st_lower.startswith("console-test") or st_lower == "星小辰-子智能体":
+                source_tag = "子智能体"
+                source_detail = session_title
+        if not source_detail:
+            source_detail = session_title or ""
+        # User-Agent 辅助识别
+        if "python-requests" in user_agent.lower() or "python-urllib" in user_agent.lower():
+            if source_tag == "外部":
+                source_tag = "脚本"
+        elif "curl" in user_agent.lower():
+            if source_tag == "外部":
+                source_tag = "curl"
+        elif "node" in user_agent.lower() or "axios" in user_agent.lower():
+            if source_tag == "外部":
+                source_tag = "Node"
+
         # 记录请求开始
         log_entry = {
             "id": request_id,
@@ -1780,6 +1813,10 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             "session_id": session_id,
             "session_title": session_title,
             "session_reused": session_reused,
+            "source": source_tag,
+            "source_detail": source_detail,
+            "client_ip": client_ip,
+            "user_agent": user_agent[:80],
             "status": "pending",
             "prompt_preview": prompt_preview,
             "response_preview": "",
@@ -2827,7 +2864,7 @@ async function loadLogs() {
         '<div style="color:var(--dim);text-align:center;padding:20px">暂无请求日志</div>';
       return;
     }
-    let html = '<table><thead><tr><th>时间</th><th>模型</th><th>类型</th><th>状态</th>'
+    let html = '<table><thead><tr><th>时间</th><th>来源</th><th>模型</th><th>类型</th><th>状态</th>'
       + '<th>Prompt</th><th>响应</th><th>耗时</th><th>Token</th></tr></thead><tbody>';
     for (const l of logs) {
       const time = new Date(l.timestamp * 1000).toLocaleTimeString();
@@ -2836,8 +2873,14 @@ async function loadLogs() {
       const tokens = l.tokens
         ? `${(l.tokens.input||0)+'+'}${(l.tokens.output||0)}=${(l.tokens.total||0)}`
         : '—';
+      // 来源标签颜色
+      const srcColors = {'企微':'green','QQ':'blue','密信':'blue','子智能体':'yellow','脚本':'gray','curl':'gray','Node':'gray','外部':'red'};
+      const srcColor = srcColors[l.source] || 'gray';
+      const srcTitle = l.source_detail ? esc(l.source_detail) : esc(l.source||'');
+      const ipInfo = l.client_ip ? ` · ${esc(l.client_ip)}` : '';
       html += `<tr>
         <td style="white-space:nowrap">${time}</td>
+        <td><span class="tag ${srcColor}" title="${srcTitle}${ipInfo}">${esc(l.source||'—')}</span></td>
         <td style="font-family:monospace;font-size:12px">${esc(l.model||'')}</td>
         <td>${streamTag}</td>
         <td><span class="tag ${tagClass}">${l.status}</span></td>
