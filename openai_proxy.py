@@ -118,6 +118,142 @@ def log_request(entry):
             _request_log.pop(0)
 
 
+# ============================================================
+# 调用进程反查（lsof → PID → 友好名称）
+# ============================================================
+_caller_name_cache = {}   # (ip, port) -> {name, pid, cmd, time}
+_caller_name_lock = threading.Lock()
+_CALLER_CACHE_TTL = 120   # 2分钟缓存
+
+
+def _friendly_caller_name(pid, cmd, cwd):
+    """把进程命令行映射为友好名称"""
+    cmd_lower = (cmd or "").lower()
+
+    # TeleAgent 主程序（Electron 应用内嵌的 Node 进程）
+    if "teleagent" in cmd_lower or "super-agent" in cmd_lower or "opencowork" in cmd_lower:
+        return "TeleAgent主程序"
+    # wecom-bot（企微/QQ/密信机器人）
+    if "wecom-bot" in cmd_lower or "server.py" in cmd_lower and "wecom" in (cwd or "").lower():
+        return "wecom-bot"
+    if "qq_official" in cmd_lower or "qq_adapter" in cmd_lower:
+        return "QQ适配器"
+    if "zmx_adapter" in cmd_lower:
+        return "量子密信适配器"
+    # 本地 AI 工厂
+    if "local-ai-factory" in (cwd or "").lower() or "ai_factory" in cmd_lower or "streamlit" in cmd_lower and "ai" in (cwd or "").lower():
+        return "AI工厂"
+    # Reachy Mini 机器人
+    if "reachy" in cmd_lower or "s2s" in cmd_lower or "speech-to-speech" in cmd_lower or "paraformer" in cmd_lower:
+        return "Reachy Mini"
+    # 机器人视觉（mlx_vlm 直调）
+    if "mlx_vlm" in cmd_lower or "vision" in cmd_lower and "robot" in (cwd or "").lower():
+        return "机器人视觉"
+    # 控制台在线测试
+    if "console-test" in cmd_lower:
+        return "面板测试"
+    # 通用工具
+    if cmd_lower.startswith("curl"):
+        return "curl"
+    if "python" in cmd_lower and "openai_proxy" in cmd_lower:
+        return "8088代理自身"
+    if "node" in cmd_lower:
+        return "Node服务"
+    if "python" in cmd_lower:
+        return "Python脚本"
+    # 兜底：用进程名
+    if cmd:
+        return cmd[:40]
+    return "未知进程"
+
+
+def identify_caller_process(client_ip, client_port):
+    """通过 lsof 反查连接 8088 的客户端进程，返回友好名称和 PID"""
+    cache_key = (client_ip, client_port)
+    now = time.time()
+
+    with _caller_name_lock:
+        cached = _caller_name_cache.get(cache_key)
+        if cached and now - cached["time"] < _CALLER_CACHE_TTL:
+            return cached["name"], cached["pid"], cached["cmd"]
+
+    # 默认值
+    name, pid, cmd = "未知", 0, ""
+
+    try:
+        # lsof -i :8088 查出所有连接到 8088 的进程（含客户端和服务端行）
+        result = subprocess.run(
+            ["lsof", "-i", f":{8088}", "-n", "-P"],
+            capture_output=True, text=True, timeout=3
+        )
+        if result.returncode == 0 and result.stdout:
+            # 解析标准 lsof 输出格式：
+            # COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+            # wandaclou 1748 lizhun 167u IPv4 ... TCP 127.0.0.1:58047->127.0.0.1:8088 (ESTABLISHED)
+            # Python 73576 lizhun 8u IPv4 ... TCP 127.0.0.1:8088->127.0.0.1:58047 (ESTABLISHED)
+            lines = result.stdout.strip().split("\n")
+            target_port_str = str(client_port)
+            for line in lines[1:]:  # 跳过表头
+                parts = line.split()
+                if len(parts) < 9:
+                    continue
+                proc_cmd = parts[0]
+                proc_pid = parts[1]
+                name_field = parts[8]  # NAME 列
+                # 服务端行：127.0.0.1:8088->127.0.0.1:CLIENT_PORT
+                # 客户端行：127.0.0.1:CLIENT_PORT->127.0.0.1:8088
+                # 两种格式都匹配 client_port
+                if target_port_str in name_field:
+                    # 跳过监听行（LISTEN）
+                    if "LISTEN" in name_field:
+                        continue
+                    # 找到匹配行，但需要区分：我们要的是客户端进程
+                    # 客户端行的 NAME 格式是 ip:port->127.0.0.1:8088
+                    # 服务端行的 NAME 格式是 127.0.0.1:8088->ip:port
+                    # 取 -> 后面的端口，如果不是 8088，说明这是客户端
+                    if "->" in name_field:
+                        left, right = name_field.split("->", 1)
+                        # right 格式: 127.0.0.1:8088 (ESTABLISHED)
+                        right_port = right.split(":")[-1].split()[0] if ":" in right else ""
+                        if right_port == "8088":
+                            # 这是客户端进程
+                            pid = proc_pid
+                            cmd = proc_cmd
+                            # 获取完整命令行
+                            try:
+                                ps_result = subprocess.run(
+                                    ["ps", "-p", proc_pid, "-o", "command="],
+                                    capture_output=True, text=True, timeout=2
+                                )
+                                if ps_result.returncode == 0:
+                                    cmd = ps_result.stdout.strip()
+                            except:
+                                pass
+                            # 获取 cwd
+                            cwd = ""
+                            try:
+                                lsof_cwd = subprocess.run(
+                                    ["lsof", "-p", proc_pid, "-a", "-d", "cwd", "-Fn"],
+                                    capture_output=True, text=True, timeout=2
+                                )
+                                if lsof_cwd.returncode == 0:
+                                    for cl in lsof_cwd.stdout.strip().split("\n"):
+                                        if cl.startswith("n"):
+                                            cwd = cl[1:]
+                                            break
+                            except:
+                                pass
+                            name = _friendly_caller_name(int(pid) if pid.isdigit() else 0, cmd, cwd)
+                            break
+    except Exception:
+        pass
+
+    with _caller_name_lock:
+        _caller_name_cache[cache_key] = {"name": name, "pid": pid, "cmd": cmd, "time": now}
+
+    return name, pid, cmd
+
+
 def get_recent_logs(limit=50):
     """获取最近的请求日志"""
     with _request_log_lock:
@@ -1773,8 +1909,9 @@ class OpenAIHandler(BaseHTTPRequestHandler):
 
         # ===== 提取请求来源信息 =====
         client_ip = self.client_address[0] if self.client_address else "unknown"
+        client_port = self.client_address[1] if self.client_address else 0
         user_agent = self.headers.get("User-Agent", "")
-        # 识别调用来源：企微/QQ/量子密信/面板测试/TeleAgent主程序/外部脚本
+        # 识别业务渠道来源：企微/QQ/量子密信/面板测试/TeleAgent主程序/外部脚本
         source_tag = "外部"
         source_detail = ""
         if session_title:
@@ -1804,6 +1941,9 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             if source_tag == "外部":
                 source_tag = "Node"
 
+        # ===== lsof 反查调用进程 =====
+        caller_name, caller_pid, caller_cmd = identify_caller_process(client_ip, client_port)
+
         # 记录请求开始
         log_entry = {
             "id": request_id,
@@ -1817,6 +1957,9 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             "source_detail": source_detail,
             "client_ip": client_ip,
             "user_agent": user_agent[:80],
+            "caller": caller_name,
+            "caller_pid": caller_pid,
+            "caller_cmd": caller_cmd[:120],
             "status": "pending",
             "prompt_preview": prompt_preview,
             "response_preview": "",
@@ -2878,9 +3021,26 @@ async function loadLogs() {
       const srcColor = srcColors[l.source] || 'gray';
       const srcTitle = l.source_detail ? esc(l.source_detail) : esc(l.source||'');
       const ipInfo = l.client_ip ? ` · ${esc(l.client_ip)}` : '';
+      // 调用进程信息
+      const callerName = l.caller || '';
+      const callerPid = l.caller_pid || '';
+      const callerCmd = l.caller_cmd || '';
+      const callerPidStr = callerPid && callerPid !== 0 ? `#${callerPid}` : '';
+      // caller 颜色映射
+      const callerColors = {
+        'TeleAgent主程序':'blue', 'wecom-bot':'green', 'QQ适配器':'green',
+        '量子密信适配器':'green', 'AI工厂':'blue', 'Reachy Mini':'blue',
+        '机器人视觉':'blue', '面板测试':'yellow', '8088代理自身':'gray',
+        'curl':'gray', 'Node服务':'gray', 'Python脚本':'gray'
+      };
+      const callerColor = callerColors[callerName] || 'gray';
+      const callerTitle = callerCmd ? esc(callerCmd) : esc(callerName);
+      const callerLine = callerName
+        ? `<div style="margin-top:2px"><span class="tag ${callerColor}" title="${callerTitle}">${esc(callerName)}${callerPidStr ? ' '+callerPidStr : ''}</span></div>`
+        : '';
       html += `<tr>
         <td style="white-space:nowrap">${time}</td>
-        <td><span class="tag ${srcColor}" title="${srcTitle}${ipInfo}">${esc(l.source||'—')}</span></td>
+        <td><span class="tag ${srcColor}" title="${srcTitle}${ipInfo}">${esc(l.source||'—')}</span>${callerLine}</td>
         <td style="font-family:monospace;font-size:12px">${esc(l.model||'')}</td>
         <td>${streamTag}</td>
         <td><span class="tag ${tagClass}">${l.status}</span></td>

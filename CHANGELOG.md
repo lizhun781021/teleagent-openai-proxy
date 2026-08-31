@@ -3,16 +3,26 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'e73d1174-5542-4538-86e0-a8c0d14783ec'
-  PropagateID: 'e73d1174-5542-4538-86e0-a8c0d14783ec'
-  ReservedCode1: '72f179fd-5d2e-42cc-8ba5-8d65b37455f8'
-  ReservedCode2: '72f179fd-5d2e-42cc-8ba5-8d65b37455f8'
+  ProduceID: '9337e352-8716-48e2-a0eb-e676a5596c7d'
+  PropagateID: '9337e352-8716-48e2-a0eb-e676a5596c7d'
+  ReservedCode1: 'cef058bc-7df3-42a8-91c0-02f48c2aeea2'
+  ReservedCode2: 'cef058bc-7df3-42a8-91c0-02f48c2aeea2'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.9.1] - 2026-08-31
+
+### 新增
+
+- **调用进程反查**：通过 lsof 反查 8088 端口的客户端连接，识别出具体是哪个进程在调用
+  - 自动识别：TeleAgent主程序、wecom-bot、QQ适配器、量子密信适配器、AI工厂、Reachy Mini、机器人视觉、面板测试、curl、Python脚本、Node服务等
+  - 日志新增字段：`caller`（进程友好名）、`caller_pid`（进程PID）、`caller_cmd`（命令行）
+  - 控制台来源列下方显示调用进程名+PID，鼠标悬停看完整命令行
+  - 2分钟缓存避免每次请求都跑 lsof
 
 ## [1.9.0] - 2026-08-31
 
