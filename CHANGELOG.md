@@ -3,16 +3,27 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '9337e352-8716-48e2-a0eb-e676a5596c7d'
-  PropagateID: '9337e352-8716-48e2-a0eb-e676a5596c7d'
-  ReservedCode1: 'cef058bc-7df3-42a8-91c0-02f48c2aeea2'
-  ReservedCode2: 'cef058bc-7df3-42a8-91c0-02f48c2aeea2'
+  ProduceID: '5daed018-40eb-4171-8c60-f50f9c302fa8'
+  PropagateID: '5daed018-40eb-4171-8c60-f50f9c302fa8'
+  ReservedCode1: '8bf66a39-394b-4706-b987-33d726ddeab1'
+  ReservedCode2: '8bf66a39-394b-4706-b987-33d726ddeab1'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.9.2] - 2026-08-31
+
+### 新增
+
+- **请求日志落盘持久化**：请求日志从"仅内存环形缓冲（重启即丢）"升级为 JSON Lines 落盘
+  - 日志文件：`openai-proxy/logs/requests-YYYY-MM-DD.jsonl`（按天滚动，重启不丢）
+  - 每次请求记录包含：时间戳、模型、流式/非流式、session_id/title、业务来源、UA、调用进程（caller/caller_pid/caller_cmd）、prompt 预览、响应预览、耗时、tokens、状态
+  - 同一条请求以 `id` 去重覆盖：请求开始写入 `pending`，结束时覆盖为 `success/error/waiting_confirmation`，保证最终态完整
+  - `/api/logs` 接口增强：支持 `?date=YYYY-MM-DD` 查询历史某天磁盘日志；未指定时优先返回当日磁盘日志（重启后依然可查）
+- **工作空间 plist 副本修正**：`com.lizhun.openai-proxy.plist` 脚本路径从失效的 `~/scripts/openai_proxy.py` 修正为实际运行路径（与 `~/Library/LaunchAgents` 一致）
 
 ## [1.9.1] - 2026-08-31
 

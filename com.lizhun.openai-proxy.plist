@@ -7,7 +7,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/bin/python3.11</string>
-        <string>/Users/lizhun/scripts/openai_proxy.py</string>
+        <string>/Users/lizhun/.local/share/TeleAgent/TeleAgent的工作空间/openai-proxy/openai_proxy.py</string>
         <string>--port</string>
         <string>8088</string>
         <string>--host</string>

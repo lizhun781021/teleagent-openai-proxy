@@ -96,6 +96,44 @@ _request_log = []
 _request_log_lock = threading.Lock()
 _MAX_LOG = 200
 
+# ============================================================
+# 请求日志落盘（JSON Lines，按天滚动，重启不丢）
+# ============================================================
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+_disk_log_lock = threading.Lock()
+
+
+def _log_file_path(ts=None):
+    """按天滚动日志文件名: logs/requests-YYYY-MM-DD.jsonl"""
+    day = time.strftime("%Y-%m-%d", time.localtime(ts or time.time()))
+    return os.path.join(LOG_DIR, f"requests-{day}.jsonl")
+
+
+def log_request_to_disk(entry):
+    """将一条请求日志以 JSON Lines 追加写盘。
+
+    同一条请求（按 id 去重）会有两次写入：请求开始时 status=pending，
+    结束时 status=success/error。为避免重复，落盘采用"同 id 覆盖"：
+    每次追加前先扫描当日文件，若已有同 id 记录则就地替换。
+    """
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        path = _log_file_path()
+        req_id = entry.get("id", "")
+        with _disk_log_lock:
+            # 读当日已有记录，去掉同 id 的旧记录
+            lines = []
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+            kept = [ln for ln in lines if (req_id and f'"id": "{req_id}"' not in ln)]
+            with open(path, "w", encoding="utf-8") as f:
+                f.writelines(kept)
+                f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+    except Exception as e:
+        print(f"[LOG-DISK] 落盘失败: {e}", file=sys.stderr)
+
+
 # 统计数据
 _stats_lock = threading.Lock()
 _stats = {
@@ -111,11 +149,12 @@ _stats = {
 
 
 def log_request(entry):
-    """记录一条请求日志"""
+    """记录一条请求日志（内存环形缓冲 + 落盘持久化）"""
     with _request_log_lock:
         _request_log.append(entry)
         if len(_request_log) > _MAX_LOG:
             _request_log.pop(0)
+    log_request_to_disk(entry)
 
 
 # ============================================================
@@ -258,6 +297,31 @@ def get_recent_logs(limit=50):
     """获取最近的请求日志"""
     with _request_log_lock:
         return list(reversed(_request_log[-limit:]))
+
+
+def read_disk_logs(date=None, limit=5000):
+    """从磁盘 JSONL 读取请求日志（重启不丢）。date 为 YYYY-MM-DD，默认当天。"""
+    try:
+        path = _log_file_path()
+        if date:
+            path = os.path.join(LOG_DIR, f"requests-{date}.jsonl")
+        if not os.path.exists(path):
+            return []
+        entries = []
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except Exception:
+                    continue
+        # 按时间倒序，取最新 limit 条
+        entries.sort(key=lambda e: e.get("timestamp", 0), reverse=True)
+        return entries[:limit]
+    except Exception:
+        return []
 
 
 def update_stats(model=None, streaming=False, error=False, tokens=None):
@@ -1512,12 +1576,19 @@ class OpenAIHandler(BaseHTTPRequestHandler):
 
     def _handle_api_logs(self):
         limit = 100
-        if "?" in self.path:
-            from urllib.parse import urlparse, parse_qs
-            qs = parse_qs(urlparse(self.path).query)
-            limit = int(qs.get("limit", ["100"])[0])
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(self.path).query)
+        limit = int(qs.get("limit", ["100"])[0])
+        # 参数 date=YYYY-MM-DD 指定查某天磁盘日志；默认查当天
+        date_arg = qs.get("date", [None])[0]
         logs = get_recent_logs(limit)
-        self._send_json(200, {"logs": logs, "total": len(logs)})
+        disk_logs = read_disk_logs(date=date_arg)
+        # 磁盘日志已含当天全部请求（含内存中的），若指定了 date 则直接返回磁盘日志
+        if date_arg:
+            self._send_json(200, {"logs": disk_logs[-limit:], "total": len(disk_logs)})
+            return
+        # 未指定 date：合并内存日志与当天磁盘日志（磁盘为准，避免重复）
+        self._send_json(200, {"logs": disk_logs[-limit:] if disk_logs else logs, "total": len(disk_logs or logs)})
 
     def _handle_api_sessions(self):
         status, resp, _ = sa_request("GET", "/session?limit=20", timeout=10)
@@ -2105,6 +2176,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                     log_entry["response_preview"] = f"[tool_calls: {len(tool_calls)}]"
                     log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
                     update_stats(model=model_name, streaming=True)
+                    log_request_to_disk(log_entry)
                     return
                 else:
                     # 没有检测到 tool calls，把缓冲文本作为正常 content 发送
@@ -2150,6 +2222,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             if listener_tokens:
                 log_entry["tokens"] = listener_tokens
             update_stats(model=model_name, streaming=True, tokens=listener_tokens)
+            log_request_to_disk(log_entry)
 
         def send_error(err):
             nonlocal has_error
@@ -2166,6 +2239,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             log_entry["error"] = err_msg
             log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
             update_stats(model=model_name, streaming=True, error=True)
+            log_request_to_disk(log_entry)
 
         # 权限/问题确认事件：以特殊 chunk 推给调用方（机器人据此提醒用户在群里确认）
         def send_confirmation(conf_id, conf_type, desc, tool):
@@ -2235,6 +2309,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             log_entry["error"] = "Failed to send prompt"
             log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
             update_stats(model=model_name, error=True)
+            log_request_to_disk(log_entry)
             return
 
         sse_thread.join(timeout=600)
@@ -2257,6 +2332,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             log_entry["error"] = f"等待用户确认: {conf.get('description', '')[:80]}"
             log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
             update_stats(model=model_name, streaming=False)
+            log_request_to_disk(log_entry)
             return
 
         if error:
@@ -2266,6 +2342,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             log_entry["error"] = err_msg
             log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
             update_stats(model=model_name, error=True)
+            log_request_to_disk(log_entry)
             return
 
         if not text:
@@ -2277,6 +2354,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                 log_entry["error"] = str(msg_error)
                 log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
                 update_stats(model=model_name, error=True)
+                log_request_to_disk(log_entry)
                 return
             if not text:
                 self._send_json(500, {"error": {"message": "Empty response", "type": "server_error"}})
@@ -2284,6 +2362,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                 log_entry["error"] = "Empty response"
                 log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
                 update_stats(model=model_name, error=True)
+                log_request_to_disk(log_entry)
                 return
 
         usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
@@ -2325,9 +2404,10 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             # 更新日志
             log_entry["status"] = "success"
             log_entry["response_preview"] = clean_text[:100]
-        log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
-        log_entry["tokens"] = tokens
-        update_stats(model=model_name, streaming=False, tokens=tokens)
+            log_entry["duration_ms"] = int((time.time() - start_time) * 1000)
+            log_entry["tokens"] = tokens
+            update_stats(model=model_name, streaming=False, tokens=tokens)
+            log_request_to_disk(log_entry)
 
 
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
@@ -3007,7 +3087,7 @@ async function loadLogs() {
         '<div style="color:var(--dim);text-align:center;padding:20px">暂无请求日志</div>';
       return;
     }
-    let html = '<table><thead><tr><th>时间</th><th>来源</th><th>模型</th><th>类型</th><th>状态</th>'
+    let html = '<table><thead><tr><th>时间</th><th>来源</th><th>调用进程</th><th>模型</th><th>类型</th><th>状态</th>'
       + '<th>Prompt</th><th>响应</th><th>耗时</th><th>Token</th></tr></thead><tbody>';
     for (const l of logs) {
       const time = new Date(l.timestamp * 1000).toLocaleTimeString();
@@ -3025,7 +3105,7 @@ async function loadLogs() {
       const callerName = l.caller || '';
       const callerPid = l.caller_pid || '';
       const callerCmd = l.caller_cmd || '';
-      const callerPidStr = callerPid && callerPid !== 0 ? `#${callerPid}` : '';
+      const callerPidStr = callerPid && callerPid !== 0 ? ` #${callerPid}` : '';
       // caller 颜色映射
       const callerColors = {
         'TeleAgent主程序':'blue', 'wecom-bot':'green', 'QQ适配器':'green',
@@ -3035,12 +3115,13 @@ async function loadLogs() {
       };
       const callerColor = callerColors[callerName] || 'gray';
       const callerTitle = callerCmd ? esc(callerCmd) : esc(callerName);
-      const callerLine = callerName
-        ? `<div style="margin-top:2px"><span class="tag ${callerColor}" title="${callerTitle}">${esc(callerName)}${callerPidStr ? ' '+callerPidStr : ''}</span></div>`
-        : '';
+      const callerTag = callerName
+        ? `<span class="tag ${callerColor}" title="${callerTitle}">${esc(callerName)}${callerPidStr}</span>`
+        : '<span style="color:var(--dim)">—</span>';
       html += `<tr>
         <td style="white-space:nowrap">${time}</td>
-        <td><span class="tag ${srcColor}" title="${srcTitle}${ipInfo}">${esc(l.source||'—')}</span>${callerLine}</td>
+        <td><span class="tag ${srcColor}" title="${srcTitle}${ipInfo}">${esc(l.source||'—')}</span></td>
+        <td>${callerTag}</td>
         <td style="font-family:monospace;font-size:12px">${esc(l.model||'')}</td>
         <td>${streamTag}</td>
         <td><span class="tag ${tagClass}">${l.status}</span></td>
