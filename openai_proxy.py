@@ -224,8 +224,10 @@ _CALLER_SOURCE_MAP = {
     "面板测试": "面板测试",
 }
 
-# 会被 caller 反哺覆盖的泛化标签（精确渠道标签不会被覆盖）
-_GENERIC_SOURCE_TAGS = {"外部", "子智能体", "脚本", "curl", "Node"}
+# 会被 caller 反哺覆盖的泛化标签（精确渠道标签和 UA 识别标签不会被覆盖）
+# 注意：curl/脚本/Node 已由 UA 精确识别，不应被 lsof caller 覆盖
+# （万达云代理拦截所有流量，lsof 只能看到万达云/TeleAgent主程序，不是真正调用者）
+_GENERIC_SOURCE_TAGS = {"外部", "子智能体"}
 
 
 from datetime import datetime as _dt
@@ -2192,9 +2194,11 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             elif "星小辰机器人" in raw_session_title or "机器人" in raw_session_title:
                 source_tag = "机器人"
                 source_detail = raw_session_title
-            elif st_lower.startswith("console-test") or st_lower == "星小辰-子智能体":
-                source_tag = "子智能体"
+            elif st_lower.startswith("console-test"):
+                source_tag = "面板测试"
                 source_detail = raw_session_title
+            # 注意：默认值"星小辰-子智能体"不再标为"子智能体"来源，
+            # 让 UA / caller 识别来判定真实来源（curl/脚本/AI工厂等）
         if not source_detail:
             source_detail = raw_session_title or ""
         # User-Agent 辅助识别

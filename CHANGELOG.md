@@ -3,16 +3,25 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'cf9cc229-ac3f-491f-8d15-b813a0fc9b92'
-  PropagateID: 'cf9cc229-ac3f-491f-8d15-b813a0fc9b92'
-  ReservedCode1: '4debb57a-1276-45cf-a2f8-aaad39c26196'
-  ReservedCode2: '4debb57a-1276-45cf-a2f8-aaad39c26196'
+  ProduceID: '29e4ac1e-4621-4d31-87b6-e8ebf2080501'
+  PropagateID: '29e4ac1e-4621-4d31-87b6-e8ebf2080501'
+  ReservedCode1: '33dd053f-894b-4a6c-b438-0dc13bbdb8fd'
+  ReservedCode2: '33dd053f-894b-4a6c-b438-0dc13bbdb8fd'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.9.7] - 2026-08-31
+
+### 修复
+
+- **curl/脚本/Node 来源被 caller 覆盖为「子智能体」**：UA 已精确识别的来源标签不再被 lsof caller 反哺覆盖
+  - 根因：`_GENERIC_SOURCE_TAGS` 包含了 `curl`/`脚本`/`Node`，万达云代理拦截后 lsof 只看到 TeleAgent主程序/万达云进程，将正确来源覆盖为「子智能体」
+  - 修复：`_GENERIC_SOURCE_TAGS` 仅保留 `外部`/`子智能体`；UA 识别的标签不再参与 caller 反哺
+  - 验证：curl 不传 session_title → source="curl"，标题 `curl|2026-08-31|20:00`（修复前为 `子智能体|TeleAgent主程序|星小辰-子智能体`）
 
 ## [1.9.6] - 2026-08-31
 
