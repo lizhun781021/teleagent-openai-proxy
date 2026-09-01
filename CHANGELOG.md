@@ -3,16 +3,26 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '52e1dd15-2ee3-4dad-92f9-0acdef813d2e'
-  PropagateID: '52e1dd15-2ee3-4dad-92f9-0acdef813d2e'
-  ReservedCode1: '30657f30-18a1-41f2-85c7-71858be32c7c'
-  ReservedCode2: '30657f30-18a1-41f2-85c7-71858be32c7c'
+  ProduceID: '4f28e57f-e3a0-47d3-8d73-b14a5e55df9b'
+  PropagateID: '4f28e57f-e3a0-47d3-8d73-b14a5e55df9b'
+  ReservedCode1: 'a6e149f3-0e5a-49bf-88a5-f26d54334f44'
+  ReservedCode2: 'a6e149f3-0e5a-49bf-88a5-f26d54334f44'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.9.9] - 2026-09-01
+
+### 修复
+
+- **question.asked 确认推送缺少问题描述**：AI 发起交互式问答（如"是否创建腾讯会议提醒？"）时，QQ/飞书收到确认通知只有"需要您确认操作"模板，看不到具体确认内容
+  - 根因：`question.asked` 事件的问题正文不在 `description`/`prompt` 字段，而在 `tool.input.questions[]`（结构：`{header, question, options[]}`）；全局监听器 `GlobalConfirmationListener._handle_event` 和请求链路 `SSEListener`/`StreamingSSEListener` 的 question 分支只取 `description`/`prompt`，导致 desc 为空
+  - 修复：新增共享函数 `_extract_question_desc(props)`，按优先级提取：`description`/`prompt` > `tool.input.questions[]`（header+question+options 拼装）> 兜底；三处 question 分支统一调用
+  - 验证：单元测试通过（模拟真实事件结构提取出完整"确认创建会议提醒 | 是否按上述信息创建腾讯会议提醒？ | 选项: 确认创建；取消；修改时间"）；inject 端到端链路验证 pending 表 desc 完整
+  - 真实案例：2026-09-01 17:06 QQ|私聊|李准 conf_id=que_05c3865be001ErdIhe0exwJmRU，日志 `[GLOBAL-CONF] desc=` 为空
 
 ## [1.9.8] - 2026-09-01
 

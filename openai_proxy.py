@@ -999,6 +999,56 @@ def get_messages(session_id):
 # ============================================================
 # 权限/问题确认回复（机器人侧"群里确认/拒绝"）
 # ============================================================
+def _extract_tool_name(tool_raw):
+    """从 tool 字段提取可读工具名（tool 可能是 dict 或字符串）"""
+    if isinstance(tool_raw, dict):
+        return tool_raw.get("callID") or tool_raw.get("name") or tool_raw.get("toolName") or ""
+    return str(tool_raw) if tool_raw else ""
+
+
+def _extract_question_desc(props):
+    """从 question.asked 事件 properties 提取人类可读的问题描述。
+
+    super-agent 的 question.asked 事件中，问题正文不在 description/prompt 字段，
+    而在 tool 对象的 input.questions[] 里（结构：{header, question, options[]}），
+    例如：
+      tool: {"callID": "call_xxx", "input": {"questions": [
+        {"header": "确认创建会议提醒",
+         "question": "是否按上述信息创建腾讯会议提醒？",
+         "options": [{"label": "确认创建", "description": "..."}]}]}}
+    本函数按优先级依次提取：description/prompt > tool.input.questions[] > 兜底。
+    """
+    desc = props.get("description") or props.get("prompt") or ""
+    if desc:
+        return desc
+
+    tool_raw = props.get("tool") or props.get("toolID") or ""
+    if isinstance(tool_raw, dict):
+        tool_input = tool_raw.get("input") or {}
+        if isinstance(tool_input, dict):
+            questions = tool_input.get("questions") or []
+            if questions:
+                parts = []
+                for q in questions:
+                    header = q.get("header") or ""
+                    question = q.get("question") or q.get("text") or q.get("prompt") or ""
+                    options = q.get("options") or []
+                    opt_text = "；".join(
+                        f"{o.get('label','')}({o.get('description','')})" if o.get('description') else str(o.get('label',''))
+                        for o in options if o.get('label') or o.get('description')
+                    )
+                    seg = " | ".join(x for x in [header, question, (f"选项: {opt_text}" if opt_text else "")] if x)
+                    if seg:
+                        parts.append(seg)
+                if parts:
+                    return "；".join(parts)
+            # 兜底：input 里可能有直接的 question/text 字段
+            for f in ("question", "text", "prompt", "description", "title"):
+                if tool_input.get(f):
+                    return str(tool_input.get(f))
+    return ""
+
+
 def register_pending_confirmation(conf_id, conf_type, session_id, description="", tool=""):
     """登记一个待确认请求（permission.asked / question.asked 事件触发）
 
@@ -1313,7 +1363,8 @@ class SSEListener:
         elif etype == "question.asked":
             # AI 向用户提问（需要选择答案）
             question_id = props.get("id") or props.get("questionID") or props.get("questionId") or ""
-            desc = props.get("description") or props.get("prompt") or ""
+            # 问题正文在 tool.input.questions[] 里，description/prompt 常为空
+            desc = _extract_question_desc(props)
             tool_raw = props.get("tool") or props.get("toolID") or ""
             if isinstance(tool_raw, dict):
                 tool = tool_raw.get("callID") or tool_raw.get("name") or ""
@@ -1413,7 +1464,8 @@ class GlobalConfirmationListener:
         elif etype == "question.asked":
             conf_type = "question"
             conf_id = props.get("id") or props.get("questionID") or props.get("questionId") or ""
-            desc = props.get("description") or props.get("prompt") or ""
+            # 问题正文在 tool.input.questions[] 里，description/prompt 常为空
+            desc = _extract_question_desc(props)
 
         if not conf_id or not conf_type:
             return
@@ -1433,6 +1485,7 @@ class GlobalConfirmationListener:
                     _pending_confirmations[conf_id]["title"] = title
         print(f"[GLOBAL-CONF] 常驻监听器捕获确认: id={conf_id} type={conf_type} "
               f"session={session_id[:20]} title={title[:30]} desc={desc[:80]}", file=sys.stderr)
+        print(f"[GLOBAL-CONF] 事件properties原文: {json.dumps(props, ensure_ascii=False)[:600]}", file=sys.stderr)
 
     def run(self):
         """主循环：连接 → 监听 → 断线重连"""
@@ -1625,7 +1678,8 @@ class StreamingSSEListener(SSEListener):
         elif etype == "question.asked":
             # AI 向用户提问（需要选择答案）
             question_id = props.get("id") or props.get("questionID") or props.get("questionId") or ""
-            desc = props.get("description") or props.get("prompt") or ""
+            # 问题正文在 tool.input.questions[] 里，description/prompt 常为空
+            desc = _extract_question_desc(props)
             tool_raw = props.get("tool") or props.get("toolID") or ""
             if isinstance(tool_raw, dict):
                 tool = tool_raw.get("callID") or tool_raw.get("name") or ""
