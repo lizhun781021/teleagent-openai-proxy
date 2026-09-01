@@ -3,16 +3,28 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '063a3b93-4e71-4ffd-85df-ba125020a89d'
-  PropagateID: '063a3b93-4e71-4ffd-85df-ba125020a89d'
-  ReservedCode1: '4a344694-8de9-4c33-a429-f75bbe033fbe'
-  ReservedCode2: '4a344694-8de9-4c33-a429-f75bbe033fbe'
+  ProduceID: '52e1dd15-2ee3-4dad-92f9-0acdef813d2e'
+  PropagateID: '52e1dd15-2ee3-4dad-92f9-0acdef813d2e'
+  ReservedCode1: '30657f30-18a1-41f2-85c7-71858be32c7c'
+  ReservedCode2: '30657f30-18a1-41f2-85c7-71858be32c7c'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.9.8] - 2026-09-01
+
+### 修复
+
+- **密信/企微/QQ 等脚本被误判为「TeleAgent主程序」**：运行在 `~/.local/share/TeleAgent/TeleAgent的工作空间/` 下的脚本（wecom-bot/server.py 等）命令行路径含 "TeleAgent" 字样，被 `_friendly_caller_name` 的 `"teleagent" in cmd` 提前命中误判为主程序
+  - 根因：`_friendly_caller_name` 中 TeleAgent 主程序判断（`"teleagent" in cmd_lower`）在 wecom-bot/QQ/密信/AI工厂 等具体应用判断**之前**；穿透评分同理（`"teleagent" in cmd` 评 70 分，早于 wecom/QQ/密信的 95 分）
+  - 修复：
+    - `_friendly_caller_name`：具体应用（wecom-bot/QQ/密信/AI工厂/Reachy Mini/面板测试/curl/Node）判断**前置**；主程序改为精确匹配特征 `super-agent-code/bin/teleagent`、`/applications/teleagent.app/contents/macos/teleagent`、`teleagent helper`、`opencowork`
+    - `_penetrate_wandacloud_proxy` 评分：wecom/QQ/密信（95 分）提前到 teleagent（70 分）之前；super-agent 精确匹配 `super-agent-code/bin/teleagent`
+  - 验证：wecom-bot/server.py 进程命令行识别为 "wecom-bot"（修复前为 "TeleAgent主程序"）；TeleAgent 主程序仍正确识别
+- **真实案例**：2026-09-01 04:32 密信群聊记录（pid 71911，wecom-bot/server.py）被误标 caller="TeleAgent主程序"，修复后应为 "wecom-bot"
 
 ## [1.9.7] - 2026-08-31
 

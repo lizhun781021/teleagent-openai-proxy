@@ -169,9 +169,7 @@ def _friendly_caller_name(pid, cmd, cwd):
     """把进程命令行映射为友好名称"""
     cmd_lower = (cmd or "").lower()
 
-    # TeleAgent 主程序（Electron 应用内嵌的 Node 进程）
-    if "teleagent" in cmd_lower or "super-agent" in cmd_lower or "opencowork" in cmd_lower:
-        return "TeleAgent主程序"
+    # ---- 具体应用优先判断（避免路径含 TeleAgent 的脚本被误判为主程序）----
     # wecom-bot（企微/QQ/密信机器人）
     if "wecom-bot" in cmd_lower or "server.py" in cmd_lower and "wecom" in (cwd or "").lower():
         return "wecom-bot"
@@ -198,6 +196,19 @@ def _friendly_caller_name(pid, cmd, cwd):
         return "8088代理自身"
     if "node" in cmd_lower:
         return "Node服务"
+
+    # --- TeleAgent 主程序（Electron 应用内嵌的 Node 进程）---
+    # 注意：路径包含 TeleAgent（如 ~/.local/share/TeleAgent/TeleAgent的工作空间/wecom-bot/server.py）
+    # 不等于主程序，必须匹配主程序二进制特征：
+    #   - super-agent 调度器: runtimes/super-agent-code/bin/TeleAgent
+    #   - Electron 主进程: /Applications/TeleAgent.app/Contents/MacOS/TeleAgent
+    #   - Electron Helper: TeleAgent Helper (Renderer/GPU/NetworkService)
+    if ("super-agent-code/bin/teleagent" in cmd_lower
+            or "/applications/teleagent.app/contents/macos/teleagent" in cmd_lower
+            or "teleagent helper" in cmd_lower
+            or "opencowork" in cmd_lower):
+        return "TeleAgent主程序"
+
     if "python" in cmd_lower:
         return "Python脚本"
     # 兜底：用进程名
@@ -461,27 +472,28 @@ def _penetrate_wandacloud_proxy():
 
             # 优先级评分：
             #   第一梯队（直接调 8088 的应用）: s2s/AI工厂/wecom-bot/QQ/密信 → 90+
-            #   第二梯队（TeleAgent 自身体系）: super-agent → 80, TeleAgent主程序 → 70
+            #   第二梯队（TeleAgent 自身体系）: super-agent → 100, TeleAgent主程序 → 70
             #   第三梯队（Electron Helper 等框架进程）: → 60
             #   其他 → 30
             # 原则：具体应用进程优先于 TeleAgent 框架进程，
             #       因为 TeleAgent 的长连接只是保活，不是真正发 LLM 请求的
+            # 注意：具体应用（s2s/AI工厂/wecom/QQ/密信）的 cmd 都跑在
+            #       ~/.local/share/TeleAgent/ 下（含 "teleagent" 字样），
+            #       必须先于 teleagent 判断，否则全部被误评成 70 分
             score = 0
             cmd_lower = full_cmd.lower()
             if "speech-to-speech" in cmd_lower or "s2s" in cmd_lower or "reachy" in cmd_lower:
                 score = 110  # Reachy Mini 语音对话，最可能是直接调 8088 的
             elif "ai_factory" in cmd_lower or "ai-factory" in cmd_lower or "streamlit" in cmd_lower:
                 score = 105  # 本地 AI 工厂
-            elif "super-agent" in cmd_lower:
+            elif "wecom" in cmd_lower or "qq_official" in cmd_lower or "qq_adapter" in cmd_lower or "zmx" in cmd_lower:
+                score = 95   # 企微/QQ/密信机器人（直接在 8088 上发请求）
+            elif "super-agent-code/bin/teleagent" in cmd_lower:
                 score = 100  # super-agent 是 AI 推理调度
             elif "teleagent" in cmd_lower or "opencowork" in cmd_lower:
                 score = 70   # TeleAgent 主程序（长连接保活，优先级降低）
             elif "electron" in cmd_lower or "helper" in cmd_lower:
                 score = 60  # Electron Helper / Network Service
-            elif "wecom" in cmd_lower:
-                score = 95  # 企微机器人
-            elif "qq" in cmd_lower or "zmx" in cmd_lower:
-                score = 95  # QQ/密信适配器
             else:
                 score = 30
 
