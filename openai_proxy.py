@@ -306,8 +306,13 @@ def build_source_session_title(source_tag, caller_name, raw_title):
     return f"{source_tag}{caller}|{base}"
 
 
-def identify_caller_process(client_ip, client_port):
-    """通过 lsof 反查连接 8088 的客户端进程，返回友好名称和 PID"""
+def identify_caller_process(client_ip, client_port, user_agent=""):
+    """通过 lsof 反查连接 8088 的客户端进程，返回友好名称和 PID
+
+    user_agent: HTTP 请求头中的 User-Agent，用于在万达云代理环境下
+    短路穿透逻辑——当 UA 已明确标识调用方类型（python-requests/curl/node）
+    时，无需穿透 7892 端口猜调用方（可能误判为同时有连接的 AI工厂等进程）。
+    """
     cache_key = (client_ip, client_port)
     now = time.time()
 
@@ -315,6 +320,23 @@ def identify_caller_process(client_ip, client_port):
         cached = _caller_name_cache.get(cache_key)
         if cached and now - cached["time"] < _CALLER_CACHE_TTL:
             return cached["name"], cached["pid"], cached["cmd"]
+
+    # ---- UA 短路：UA 已明确标识调用方类型时，跳过 lsof + 万达云穿透 ----
+    # 避免 _penetrate_wandacloud_proxy() 在 7892 端口上误取得分更高的
+    # 无关进程（如 AI工厂 Streamlit 得分 105 > TeleAgent主程序 70）
+    ua_lower = (user_agent or "").lower()
+    _ua_caller_map = [
+        ("python-requests", "Python脚本"),
+        ("python-urllib",  "Python脚本"),
+        ("curl",           "curl"),
+        ("node",           "Node服务"),
+        ("axios",          "Node服务"),
+    ]
+    ua_short_circuit = None
+    for ua_key, ua_name in _ua_caller_map:
+        if ua_key in ua_lower:
+            ua_short_circuit = ua_name
+            break
 
     # 默认值
     name, pid, cmd = "未知", 0, ""
@@ -388,11 +410,19 @@ def identify_caller_process(client_ip, client_port):
         # ---- 万达云代理穿透 ----
         # 当 lsof 抓到的 caller 是万达云（wandacloud / 万达云），说明请求经系统代理转发，
         # 真正的调用方在 7892 端口侧。反查 7892 上的 TeleAgent / super-agent 进程。
+        #
+        # 但当 User-Agent 已明确标识调用方类型（python-requests/curl/node），
+        # 直接用 UA 结果，不做穿透——穿透会取得分最高的进程，可能误判为
+        # 同时有连接的 AI工厂（105分）等无关进程。
         _is_wanda = "wanda" in (cmd or "").lower() or "万达" in (cmd or "") or "万达" in name or "wanda" in name.lower()
         if name in ("未知", "") or _is_wanda:
-            penetrated = _penetrate_wandacloud_proxy()
-            if penetrated:
-                name, pid, cmd = penetrated
+            if ua_short_circuit:
+                # UA 已识别调用方类型，直接使用，跳过穿透
+                name = ua_short_circuit
+            else:
+                penetrated = _penetrate_wandacloud_proxy()
+                if penetrated:
+                    name, pid, cmd = penetrated
     except Exception:
         pass
 
@@ -793,15 +823,34 @@ _title_create_locks = {}     # title -> Lock（同名并发创建互斥）
 SESSION_CACHE_TTL = 120      # 秒：本地缓存有效期（避免每次请求都查列表）
 _SESSION_QUERY_LIMIT = 300   # 查询会话列表上限
 
+# 尾部时间段匹配（HH:MM），用于匹配 key 时丢弃时间、保留日期
+_TIME_SEG_RE = re.compile(r"^\d{1,2}:\d{2}$")
+
+
+def _session_match_key(title):
+    """会话标题匹配 key：去掉尾部 HH:MM 时间段后返回剩余部分。
+
+    - 「脚本|Python脚本|2026-09-27|07:12」→「脚本|Python脚本|2026-09-27」
+      同一天内时间变化 key 不变（继续复用）；跨天日期变化 key 变化（自动新建会话）
+    - 「企微|私聊|userid」无时间段 → 完整保留，避免不同用户/群误复用同一会话
+    - 不含"|"的标题原样返回（等价精确匹配）
+    """
+    if not title:
+        return title
+    parts = title.split("|")
+    while len(parts) > 1 and _TIME_SEG_RE.match(parts[-1].strip()):
+        parts.pop()
+    return "|".join(parts)
+
 
 def get_session_by_title(title, directory=DEFAULT_DIRECTORY):
     """在 super-agent 会话列表中匹配会话，返回最新更新的 session_id（无则 None）
     只匹配同目录，避免误复用其他目录的同名会话。
-    
+
     匹配规则：
-    - 标题含"|"时按前缀匹配：查找已有会话中标题以传入 title 的"|"前部分开头的会话
-      （如传入"星小辰机器人|08:35"可匹配"星小辰机器人|08:30"），实现时间变化仍复用
-    - 标题不含"|"时按精确匹配
+    - 按 _session_match_key 比较（去掉尾部时间段）：同一天内时间变化仍复用，
+      跨天日期变化不再命中 → 自动新建会话（实现"一天一个会话"）
+    - 企微/QQ/密信等无日期段的标题 → key 即完整标题，不同用户/群不串会话
     """
     if not title:
         return None
@@ -814,19 +863,13 @@ def get_session_by_title(title, directory=DEFAULT_DIRECTORY):
         return None
     if not isinstance(sessions, list):
         return None
-    # 提取前缀（用于含"|"的标题前缀匹配）
-    prefix = title.split("|", 1)[0] if "|" in title else None
+    # 匹配 key：去掉尾部时间段（同一天时间变化仍复用，跨天自动新建）
+    match_key = _session_match_key(title)
     matched = []
     for s in sessions:
         s_title = s.get("title", "") or ""
-        if prefix:
-            # 前缀匹配：已有会话标题也含"|"且前缀一致
-            s_prefix = s_title.split("|", 1)[0] if "|" in s_title else None
-            if s_prefix != prefix:
-                continue
-        else:
-            if s_title != title:
-                continue
+        if _session_match_key(s_title) != match_key:
+            continue
         # 目录过滤：仅当两侧都有值时校验一致；super-agent 返回可能缺 directory 字段
         s_dir = s.get("directory", "") or ""
         if directory and s_dir and os.path.normpath(s_dir) != os.path.normpath(directory):
@@ -847,13 +890,14 @@ def get_or_create_session(directory=DEFAULT_DIRECTORY, title=None):
     返回 (session_id, reused: bool)；失败返回 (None, False)。
     并发保护：同一标题同时请求时只创建一次。
     
-    对于含"|"的标题，缓存 key 统一用前缀（"|"前的部分），使时间变化仍命中缓存。
+    缓存 key 与匹配 key 一致（_session_match_key：去掉尾部时间段），
+    同一天内命中缓存，跨天/换来源自动失效。
     """
     if not title:
         return create_session(directory=directory, title=None), False
 
-    # 缓存 key：含"|"时用前缀，否则用完整标题
-    cache_key = title.split("|", 1)[0] if "|" in title else title
+    # 缓存 key：与匹配 key 一致（去掉尾部时间段，跨天自动失效）
+    cache_key = _session_match_key(title)
 
     now = time.time()
     # 1. 本地缓存命中
@@ -2279,8 +2323,8 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                 if source_tag == "外部":
                     source_tag = "Node"
 
-        # ===== lsof 反查调用进程 =====
-        caller_name, caller_pid, caller_cmd = identify_caller_process(client_ip, client_port)
+        # ===== lsof 反查调用进程（传入 UA 以便短路万达云穿透） =====
+        caller_name, caller_pid, caller_cmd = identify_caller_process(client_ip, client_port, user_agent)
 
         # ===== caller 反哺来源标签 =====
         # 当 source_tag 是泛化标签时，用 lsof 识别到的进程名精确到具体来源

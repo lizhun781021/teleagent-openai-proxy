@@ -3,16 +3,34 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '4f28e57f-e3a0-47d3-8d73-b14a5e55df9b'
-  PropagateID: '4f28e57f-e3a0-47d3-8d73-b14a5e55df9b'
-  ReservedCode1: 'a6e149f3-0e5a-49bf-88a5-f26d54334f44'
-  ReservedCode2: 'a6e149f3-0e5a-49bf-88a5-f26d54334f44'
+  ProduceID: '13315246-d9de-4f59-b2ca-013db587a615'
+  PropagateID: '13315246-d9de-4f59-b2ca-013db587a615'
+  ReservedCode1: '91077164-869a-4d6f-a157-102273850e26'
+  ReservedCode2: '91077164-869a-4d6f-a157-102273850e26'
 ---
 
 # Changelog
 
 本项目的所有重要变更记录在此文件中。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+## [1.9.10] - 2026-09-27
+
+### 修复
+
+- **会话复用只按标题第一段匹配，跨天不新建会话**：脚本/curl/AI工厂/机器人等来源的会话标题虽含日期（如「脚本|Python脚本|2026-09-27|07:12」），但请求永远复用同一个旧会话，"一天一个会话"的设计失效
+  - 根因：`get_session_by_title()` 与 `get_or_create_session()` 的匹配/缓存 key 均取 `title.split("|", 1)[0]`（仅来源标签，如"脚本"），标题中的日期段（第三段）完全不参与匹配——注释里"时间变化仍复用"的前缀匹配设计，副作用是日期变化也被豁免；且第二段调用进程名同样不参与匹配，所有 Python 脚本共用一个会话，舆情分析与微信摘要等不同任务串在同一会话里
+  - 修复：新增 `_session_match_key(title)`——去掉标题尾部 HH:MM 时间段后整体比较：「脚本|Python脚本|2026-09-27|07:12」→ key「脚本|Python脚本|2026-09-27」；`get_session_by_title()` 匹配与 `get_or_create_session()` 缓存 key 统一换用该函数
+    - 同一天内时间变化 key 不变 → 继续复用（保留原设计意图）
+    - 跨天日期变化 key 变化 → 不再命中 → 自动新建当天会话
+    - 企微/QQ/密信等无日期段标题 → key 即完整标题，顺带修复不同用户/群可能串会话的隐患
+  - 验证：函数级 11 个用例全过（含跨天不匹配/同日不同时间匹配/企微完整保留/空标题）；重启 8088 后实测——今日请求不再命中旧会话 ses_f321（其真实标题为更早日期、已被连续复用多天），自动新建 ses_f1ff4dd6（标题 2026-09-27），同日第二次请求正确复用；模拟今日 23:59 标题仍命中今日会话，昨日标题互不命中
+  - 真实案例：2026-09-27 07:12 舆情批次请求标题已是「脚本|Python脚本|2026-09-27|07:12」，但仍落入 09-26 之前创建的 ses_f321b9fe（日志 requests-2026-09-26.jsonl 61 次 / 2026-09-27.jsonl 24 次全部同一会话）
+- **identify_caller_process 万达云穿透误判**（随本版一并提交的既有改动）：UA 已明确标识调用方类型（python-requests/python-urllib/curl/node/axios）时短路，跳过 lsof+万达云 7892 端口穿透，避免穿透取得分更高的无关进程（如 AI工厂 Streamlit 105 分 > TeleAgent主程序 70 分）
+
+### 变更
+
+- 企微/QQ/密信会话匹配从"第一段前缀"收紧为完整标题（渠道标识+用户/群 ID），多用户/多群场景不再共享同一会话
 
 ## [1.9.9] - 2026-09-01
 
